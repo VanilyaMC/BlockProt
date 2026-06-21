@@ -176,9 +176,8 @@ public class BlockInfoInventory extends BlockProtInventory {
         );
         setBackButton(InventoryConstants.lineLength - 1);
 
-        Bukkit.getScheduler().runTaskAsynchronously(
-            BlockProt.getInstance(),
-            () -> {
+        BlockProt.getInstance().getFoliaLib().getScheduler().runAsync(
+            task -> {
                 try {
                     final var profiles = BlockProt.getProfileService().findAllByUuid(state.friendResultCache);
 

@@ -26,6 +26,7 @@ repositories {
     maven("https://oss.sonatype.org/content/repositories/snapshots/")
     maven("https://repo.extendedclip.com/content/repositories/placeholderapi/")
     maven("https://maven.enginehub.org/repo/")
+    maven("https://repo.tcoded.com/releases")
     maven("https://repo.codemc.org/repository/maven-public/") {
         name = "CodeMC"
         content {
@@ -60,6 +61,7 @@ dependencies {
     implementation("me.clip:placeholderapi:$papiVersion")
     implementation("com.sk89q.worldguard:worldguard-bukkit:$worldGuardVersion")
     implementation("com.github.angeschossen:LandsAPI:6.28.11")
+    implementation("com.tcoded:FoliaLib:0.5.1")
 }
 
 blossom {
@@ -107,6 +109,7 @@ tasks.shadowJar {
     relocate("net.wesjd.anvilgui", "de.sean.blockprot.bukkit.shaded.anvilgui")
     relocate("org.bstats", "de.sean.blockprot.bukkit.metrics")
     relocate("org.enginehub.squirrelid", "de.sean.blockprot.bukkit.squirrelid")
+    relocate("com.tcoded.folialib", "de.sean.blockprot.bukkit.shaded.folialib")
     // minimize()
 
     dependencies {
@@ -117,6 +120,7 @@ tasks.shadowJar {
         this.include(dependency("org.bstats:bstats-base"))
         this.include(dependency("org.bstats:bstats-bukkit"))
         this.include(dependency("org.enginehub:squirrelid"))
+        this.include(dependency("com.tcoded:FoliaLib"))
     }
 
     archiveClassifier.set(

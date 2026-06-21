@@ -18,6 +18,7 @@
 
 package de.sean.blockprot.bukkit.nbt;
 
+import com.tcoded.folialib.wrapper.task.WrappedTask;
 import de.sean.blockprot.bukkit.BlockProt;
 import de.sean.blockprot.bukkit.nbt.stats.BlockCountStatistic;
 import de.sean.blockprot.bukkit.nbt.stats.BukkitStatistic;
@@ -34,7 +35,6 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
-import org.bukkit.scheduler.BukkitTask;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -58,7 +58,7 @@ public final class StatHandler extends NBTHandler<NBTCompound> {
     static final String PLAYER_SUB_KEY = "player_stats";
     static final String SERVER_SUB_KEY = "server_stats";
 
-    private static @Nullable BukkitTask fileSaveTask;
+    private static @Nullable WrappedTask fileSaveTask;
 
     private static @Nullable File backupFile;
 
@@ -118,8 +118,7 @@ public final class StatHandler extends NBTHandler<NBTCompound> {
                 }
             }
 
-            fileSaveTask = Bukkit.getScheduler().runTaskTimerAsynchronously(
-                BlockProt.getInstance(),
+            fileSaveTask = BlockProt.getInstance().getFoliaLib().getScheduler().runTimerAsync(
                 new StatisticFileSaveTask(),
                 0L,
                 5 * 60 * 20 // 5 minutes * 60 seconds * 20 ticks

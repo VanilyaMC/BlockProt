@@ -93,9 +93,8 @@ public class FriendSearchHistoryInventory extends BlockProtInventory {
 
         setBackButton();
 
-        Bukkit.getScheduler().runTaskAsynchronously(
-            BlockProt.getInstance(),
-            () -> {
+        BlockProt.getInstance().getFoliaLib().getScheduler().runAsync(
+            task -> {
                 try {
                     final var profiles = BlockProt.getProfileService().findAllByUuid(state.friendResultCache);
 
