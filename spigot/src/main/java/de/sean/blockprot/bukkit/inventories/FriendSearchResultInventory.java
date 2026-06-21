@@ -158,7 +158,7 @@ public class FriendSearchResultInventory extends BlockProtInventory {
         InventoryState state = InventoryState.get(player.getUniqueId());
         if (state == null) return inventory;
 
-        updateTask = BlockProt.getInstance().getFoliaLib().getScheduler().runAtEntityTimer(player, new ResultUpdateTask(state), 0, 1);
+        updateTask = BlockProt.getInstance().getFoliaLib().getScheduler().runAtEntityTimer(player, new ResultUpdateTask(state), 1, 1);
         loadTask = BlockProt.getInstance().getFoliaLib().getScheduler().runAsync(task -> new AsyncResultLoadTask(state, player, searchQuery).run());
 
         for (int i = 0; i < maxResults; i++) {

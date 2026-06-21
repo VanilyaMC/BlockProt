@@ -120,7 +120,7 @@ public final class StatHandler extends NBTHandler<NBTCompound> {
 
             fileSaveTask = BlockProt.getInstance().getFoliaLib().getScheduler().runTimerAsync(
                 new StatisticFileSaveTask(),
-                0L,
+                1L,
                 5 * 60 * 20 // 5 minutes * 60 seconds * 20 ticks
             );
         } catch (Throwable e) {
