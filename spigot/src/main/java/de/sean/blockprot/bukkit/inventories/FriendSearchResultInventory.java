@@ -24,6 +24,7 @@ import de.sean.blockprot.bukkit.Translator;
 import de.sean.blockprot.bukkit.integrations.PluginIntegration;
 import de.sean.blockprot.bukkit.nbt.PlayerSettingsHandler;
 import de.sean.blockprot.nbt.FriendModifyAction;
+import com.tcoded.folialib.wrapper.task.WrappedTask;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -34,13 +35,13 @@ import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.SkullMeta;
-import org.bukkit.scheduler.BukkitTask;
 import org.enginehub.squirrelid.Profile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class FriendSearchResultInventory extends BlockProtInventory {
@@ -48,8 +49,8 @@ public class FriendSearchResultInventory extends BlockProtInventory {
 
     private final int maxResults = getSize() - 1;
 
-    BukkitTask loadTask = null;
-    BukkitTask updateTask = null;
+    CompletableFuture<Void> loadTask = null;
+    WrappedTask updateTask = null;
 
     @Override
     int getSize() {
@@ -133,10 +134,7 @@ public class FriendSearchResultInventory extends BlockProtInventory {
 
     @Override
     public void onClose(@NotNull InventoryCloseEvent event, @NotNull InventoryState state) {
-        if (loadTask != null)
-            loadTask.cancel();
-        if (updateTask != null)
-            updateTask.cancel();
+        cancelTasks();
     }
 
     /**
@@ -160,14 +158,21 @@ public class FriendSearchResultInventory extends BlockProtInventory {
         InventoryState state = InventoryState.get(player.getUniqueId());
         if (state == null) return inventory;
 
-        updateTask = Bukkit.getScheduler().runTaskTimer(BlockProt.getInstance(), new ResultUpdateTask(state), 0, 1);
-        loadTask = Bukkit.getScheduler().runTaskAsynchronously(BlockProt.getInstance(), new AsyncResultLoadTask(state, player, searchQuery));
+        updateTask = BlockProt.getInstance().getFoliaLib().getScheduler().runAtEntityTimer(player, new ResultUpdateTask(state), 0, 1);
+        loadTask = BlockProt.getInstance().getFoliaLib().getScheduler().runAsync(task -> new AsyncResultLoadTask(state, player, searchQuery).run());
 
         for (int i = 0; i < maxResults; i++) {
             this.setItemStack(i, Material.SKELETON_SKULL, "Loading...");
         }
         setBackButton();
         return inventory;
+    }
+
+    private void cancelTasks() {
+        if (loadTask != null)
+            loadTask.cancel(true);
+        if (updateTask != null)
+            updateTask.cancel();
     }
 
     /** This task is responsible for taking available results and inserting it into the inventory */
@@ -181,16 +186,15 @@ public class FriendSearchResultInventory extends BlockProtInventory {
 
         @Override
         public void run() {
-            final var scheduler = Bukkit.getScheduler();
-            if (!scheduler.isQueued(loadTask.getTaskId()) && !scheduler.isCurrentlyRunning(loadTask.getTaskId()) && resultQueue.isEmpty()) {
+            if (loadTask != null && loadTask.isDone() && resultQueue.isEmpty()) {
                 if (playersIndex == 0) {
                     // If the task has stopped running and there are no results, clear the inventory
                     for (int i = 0; i < maxResults; i++) {
                         inventory.clear(i);
                     }
                 }
-                loadTask.cancel();
-                updateTask.cancel();
+                cancelTasks();
+                return;
             }
 
             Profile profile;
@@ -210,8 +214,7 @@ public class FriendSearchResultInventory extends BlockProtInventory {
 
             // If we hit the maximum amount of results we can just tell the task to stop, and cancel ourselves.
             if (playersIndex == maxResults) {
-                loadTask.cancel();
-                updateTask.cancel();
+                cancelTasks();
             }
         }
     }

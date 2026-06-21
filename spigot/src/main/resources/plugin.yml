@@ -6,6 +6,7 @@ authors: [ spnda ]
 description: A simple block protection plugin
 prefix: BlockProt
 website: https://www.github.com/spnda/BlockProt
+folia-supported: true
 permissions:
   blockprot.lock:
     default: true

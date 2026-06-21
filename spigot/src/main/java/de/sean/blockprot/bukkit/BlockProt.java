@@ -18,6 +18,7 @@
 
 package de.sean.blockprot.bukkit;
 
+import com.tcoded.folialib.FoliaLib;
 import de.sean.blockprot.bukkit.commands.BlockProtCommand;
 import de.sean.blockprot.bukkit.config.DefaultConfig;
 import de.sean.blockprot.bukkit.integrations.*;
@@ -76,6 +77,8 @@ public final class BlockProt extends JavaPlugin {
     private static ProfileService playerProfileService = null;
 
     private Metrics metrics;
+
+    private FoliaLib foliaLib;
 
     /**
      * Get the current instance of the {@link BlockProt} plugin.
@@ -151,6 +154,8 @@ public final class BlockProt extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        foliaLib = new FoliaLib(this);
+
         if (isRunningCraftBukkit()) {
             final var message = "This plugin does not support running on CraftBukkit servers! Please use any Spigot server instead!";
             getLogger().severe(message);
@@ -159,7 +164,7 @@ public final class BlockProt extends JavaPlugin {
         }
 
         /* Check for updates */
-        Bukkit.getScheduler().runTaskAsynchronously(this, new UpdateChecker(this.getDescription()));
+        foliaLib.getScheduler().runAsync(task -> new UpdateChecker(this.getDescription()));
 
         // We'll try and get the AnvilGUI API to select the version wrapper. Should it fail, we display an error that
         // we do not support the current Minecraft version.
@@ -319,5 +324,9 @@ public final class BlockProt extends JavaPlugin {
         } catch (ClassNotFoundException e) {
             return true;
         }
+    }
+
+    public FoliaLib getFoliaLib() {
+        return foliaLib;
     }
 }

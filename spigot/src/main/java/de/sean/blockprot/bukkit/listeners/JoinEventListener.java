@@ -21,7 +21,6 @@ package de.sean.blockprot.bukkit.listeners;
 import de.sean.blockprot.bukkit.BlockProt;
 import de.sean.blockprot.bukkit.nbt.PlayerSettingsHandler;
 import de.sean.blockprot.bukkit.tasks.UpdateChecker;
-import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -34,8 +33,7 @@ public class JoinEventListener implements Listener {
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         if (BlockProt.getDefaultConfig().shouldNotifyOpOfUpdates() && player.isOp()) {
-            Bukkit.getScheduler().runTaskAsynchronously(
-                BlockProt.getInstance(),
+            BlockProt.getInstance().getFoliaLib().getScheduler().runAsync(task ->
                 new UpdateChecker(
                     BlockProt.getInstance().getDescription(),
                     Collections.singletonList(player)

@@ -185,9 +185,8 @@ public class BlockEventListener implements Listener {
                 }
             }
 
-            Bukkit.getScheduler().runTaskLater(
-                this.blockProt,
-                () -> {
+            BlockProt.getInstance().getFoliaLib().getScheduler().runAtEntityLater(
+                event.getPlayer(), task -> {
                     if (block.getType() == Material.CHEST || block.getType() == Material.TRAPPED_CHEST) {
                         // We cannot use BlockNBTHandler#applyToOtherContainer, because we want the
                         // data to be copied to this new chest, instead of the old chest being effectively
