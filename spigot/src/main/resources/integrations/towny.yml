@@ -7,8 +7,9 @@
 #  - A plot leaves the town (the mayor unclaims it, the town is deleted, another town
 #    overclaims it): the locks inside are marked, see ex_resident_lock_grace_days in
 #    config.yml. The owners get that many days, then the locks stop protecting anything.
-#  - /plot clear: on a town-owned plot every lock is removed. On a resident's plot only
-#    the locks on the block types Towny's plot clear deletes itself (signs by default).
+#  - /plot clear: on a town-owned plot every lock is removed. A resident clearing their
+#    own plot removes their own locks (any block type); locks of somebody else's chest in
+#    it are only marked. The mayor or an assistant clearing a resident's plot only marks.
 cleanup_plots_after_unclaim: true
 
 # A resident who leaves a town or is kicked, or who loses a plot (evicted, sold, handed

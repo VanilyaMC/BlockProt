@@ -22,7 +22,7 @@ import de.sean.blockprot.bukkit.BlockProt;
 import de.sean.blockprot.bukkit.inventories.InventoryConstants;
 import de.sean.blockprot.util.BlockProtUtil;
 import de.tr7zw.changeme.nbtapi.NBTCompound;
-import de.tr7zw.changeme.nbtapi.NBTEntity;
+import de.tr7zw.changeme.nbtapi.NBTPersistentDataContainer;
 import de.tr7zw.changeme.nbtapi.NBTType;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
@@ -70,7 +70,9 @@ public final class PlayerSettingsHandler extends FriendSupportingHandler<NBTComp
         super(DEFAULT_FRIENDS_ATTRIBUTE);
         this.player = player;
 
-        this.container = new NBTEntity(player).getPersistentDataContainer();
+        // The settings live in the player's own persistent data (saved with the player data);
+        // the player's whole NBT is never serialized.
+        this.container = new NBTPersistentDataContainer(player.getPersistentDataContainer());
     }
 
     /**

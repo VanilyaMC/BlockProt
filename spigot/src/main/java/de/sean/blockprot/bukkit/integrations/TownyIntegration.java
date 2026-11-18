@@ -326,25 +326,59 @@ public final class TownyIntegration extends PluginIntegration implements Listene
         }
     }
 
+    /** Who ran {@code /plot clear} on this thread a moment ago: the event itself does not say. */
+    private final java.util.concurrent.ConcurrentHashMap<Long, long[]> clearTimes = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<Long, UUID> clearActors = new java.util.concurrent.ConcurrentHashMap<>();
+
+    @EventHandler(priority = org.bukkit.event.EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlotClearCommand(@NotNull final org.bukkit.event.player.PlayerCommandPreprocessEvent event) {
+        final String message = event.getMessage().toLowerCase(java.util.Locale.ROOT).trim();
+        if (message.matches("^/(towny:)?plot\\s+clear(\\s.*)?$")) {
+            final long thread = Thread.currentThread().threadId();
+            clearActors.put(thread, event.getPlayer().getUniqueId());
+            clearTimes.put(thread, new long[]{System.currentTimeMillis()});
+        }
+    }
+
+    /** The player who ran the plot clear that fires the event now, or null (console, plugin, too old). */
+    private @Nullable UUID takeClearActor() {
+        final long thread = Thread.currentThread().threadId();
+        final var when = clearTimes.remove(thread);
+        final UUID who = clearActors.remove(thread);
+        return when != null && System.currentTimeMillis() - when[0] < 5000 ? who : null;
+    }
+
     /**
-     * {@code /plot clear}. On a town-owned plot the mayor or an assistant cleared it: every lock goes.
-     * On a resident's plot only the locks on the block types Towny's plot clear removes itself go (signs
-     * by default): the event does not say who ran the command, and a plot clear must never open the
-     * chests of a resident that it leaves standing.
+     * {@code /plot clear}.
+     * <ul>
+     *   <li>Town-owned plot (cleared by the mayor or an assistant): every lock goes.</li>
+     *   <li>A resident clears their own plot: their own locks go, whatever the block type. Locks of
+     *       somebody else's chest standing in it are only marked (grace period), never opened.</li>
+     *   <li>The mayor or an assistant clears a resident's plot: nothing opens, every lock in it is
+     *       marked (grace period).</li>
+     * </ul>
+     * Without a known actor a resident's plot is treated like the last case.
      */
     @EventHandler
     public void onPlotClear(@NotNull final PlotClearEvent event) {
+        final UUID actor = takeClearActor();
         if (!options().cleanupAfterUnclaim() || event.getTownBlock() == null) {
             return;
         }
         final TownBlock townBlock = event.getTownBlock();
+        final List<WorldCoord> here = List.of(townBlock.getWorldCoord());
         if (!townBlock.hasResident()) {
-            changeLocks(List.of(townBlock.getWorldCoord()), Change.REMOVE, null, null);
+            changeLocks(here, Change.REMOVE, null, null);
             return;
         }
-        final Set<org.bukkit.Material> removed = java.util.EnumSet.noneOf(org.bukkit.Material.class);
-        removed.addAll(townBlock.getWorld().getPlotManagementMayorDelete());
-        changeLocks(List.of(townBlock.getWorldCoord()), Change.REMOVE, null, removed::contains);
+        final Resident owner = townBlock.getResidentOrNull();
+        if (owner != null && owner.getUUID().equals(actor)) {
+            final UUID ownerId = owner.getUUID();
+            changeLocks(here, Change.REMOVE, lockOwner -> !lockOwner.equals(ownerId), null);
+            changeLocks(here, Change.MARK, lockOwner -> lockOwner.equals(ownerId), null);
+        } else {
+            changeLocks(here, Change.MARK, null, null);
+        }
     }
 
     /**
