@@ -88,10 +88,13 @@ public class HopperEventListener implements Listener {
      */
     @Nullable
     private Block getBlock(InventoryHolder holder) {
-        if (holder instanceof Container) return ((Container) holder).getBlock();
-        else if (holder instanceof DoubleChest doubleChest) {
-            if (doubleChest.getWorld() == null) return null;
-            return doubleChest.getWorld().getBlockAt(doubleChest.getLocation());
-        } else return null;
+        // For a double chest the half that is locked decides, so a half that has no lock yet cannot be a way in.
+        final var blocks = de.sean.blockprot.bukkit.util.BlockUtil.blocksOf(holder);
+        for (final Block block : blocks) {
+            if (BlockProt.getDefaultConfig().isLockable(block.getType()) && new BlockNBTHandler(block).isProtected()) {
+                return block;
+            }
+        }
+        return blocks.isEmpty() ? null : blocks.get(0);
     }
 }

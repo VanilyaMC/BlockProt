@@ -80,7 +80,7 @@ public class BlockEventListener implements Listener {
             && !PluginIntegration.ownerRightsForAll(player, event.getBlock())) {
             // Prevent unauthorized players from breaking locked blocks.
             event.setCancelled(true);
-            Messages.actionBar(player, Translator.get(TranslationKey.MESSAGES__NO_PERMISSION));
+            Messages.actionBar(player, Translator.get(TranslationKey.MESSAGES__LOCKED));
         }
     }
 
@@ -125,6 +125,15 @@ public class BlockEventListener implements Listener {
 
         Block block = event.getBlockPlaced();
         String playerUuid = event.getPlayer().getUniqueId().toString();
+
+        // A chest placed next to somebody else's locked chest joins it to a double chest, which would
+        // open the locked half. It is refused right away, not one tick later.
+        if ((block.getType() == Material.CHEST || block.getType() == Material.TRAPPED_CHEST)
+            && BlockUtil.joinsLockedChest(block, event.getPlayer().getUniqueId())) {
+            event.setCancelled(true);
+            Messages.actionBar(event.getPlayer(), Translator.get(TranslationKey.MESSAGES__LOCKED));
+            return;
+        }
         BlockNBTHandler handler = new BlockNBTHandler(block);
 
         // We only try to lock the block if it isn't locked already.
@@ -188,18 +197,21 @@ public class BlockEventListener implements Listener {
         }
     }
 
+    /**
+     * A locked door, trapdoor or gate must not pop off when the block it hangs on is broken or
+     * pushed away: that would break a locked block by breaking its support.
+     */
     @EventHandler(ignoreCancelled = true)
     public void onBlockPhysics(@NotNull final BlockPhysicsEvent event) {
-        // We check for the type directly to immediately discard any other blocks we don't
-        // want to handle here to minimize the slowdown of this event handler. We specifically
-        // don't allow sand, gravel, or concrete powder to be lockable as those might severely
-        // increase the amount of BlockNBTHandler checks we need to perform.
-        if (event.getChangedType().toString().contains("ANVIL") &&
-            BlockProt.getDefaultConfig().isLockableBlock(event.getChangedType())) {
-            BlockNBTHandler handler = new BlockNBTHandler(event.getBlock());
-
-            if (handler.isProtected())
-                event.setCancelled(true);
+        final Material type = event.getBlock().getType();
+        // The cheap checks come first: this event fires for every block update.
+        if (!BlockProt.getDefaultConfig().isLockableBlock(type)) return;
+        final String name = type.name();
+        if (!(name.contains("DOOR") || name.contains("GATE") || name.contains("ANVIL"))) return;
+        if (BlockProt.getDefaultConfig().isWorldExcluded(event.getBlock().getWorld())) return;
+        final BlockNBTHandler handler = new BlockNBTHandler(event.getBlock());
+        if (handler.isProtected()) {
+            event.setCancelled(true);
         }
     }
 

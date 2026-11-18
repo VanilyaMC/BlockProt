@@ -99,6 +99,48 @@ public final class BlockUtil {
         }
     }
 
+    /**
+     * The blocks that make up an inventory holder: one for a single container, both halves for a
+     * double chest. A double chest is protected when either half is, so every check looks at both.
+     */
+    public static @NotNull java.util.List<Block> blocksOf(@Nullable final org.bukkit.inventory.InventoryHolder holder) {
+        if (holder instanceof org.bukkit.block.Container container) {
+            return java.util.List.of(container.getBlock());
+        }
+        if (holder instanceof DoubleChest doubleChest) {
+            final var blocks = new java.util.ArrayList<Block>(2);
+            if (doubleChest.getLeftSide() instanceof org.bukkit.block.Container left) blocks.add(left.getBlock());
+            if (doubleChest.getRightSide() instanceof org.bukkit.block.Container right) blocks.add(right.getBlock());
+            return blocks;
+        }
+        return java.util.List.of();
+    }
+
+    /**
+     * Whether the chest that was just placed joined another chest to a double chest, and that other
+     * chest is locked for {@code placer}: then the new half would open somebody else's chest.
+     */
+    public static boolean joinsLockedChest(@NotNull final Block placed, @NotNull final java.util.UUID placer) {
+        if (!(placed.getBlockData() instanceof org.bukkit.block.data.type.Chest data)
+            || data.getType() == org.bukkit.block.data.type.Chest.Type.SINGLE) {
+            return false;
+        }
+        for (final org.bukkit.block.BlockFace face : new org.bukkit.block.BlockFace[]{
+            org.bukkit.block.BlockFace.NORTH, org.bukkit.block.BlockFace.SOUTH,
+            org.bukkit.block.BlockFace.EAST, org.bukkit.block.BlockFace.WEST}) {
+            final Block neighbor = placed.getRelative(face);
+            if (neighbor.getType() != placed.getType()) continue;
+            if (!(neighbor.getBlockData() instanceof org.bukkit.block.data.type.Chest other)
+                || other.getType() == org.bukkit.block.data.type.Chest.Type.SINGLE
+                || other.getFacing() != data.getFacing()) {
+                continue;
+            }
+            final var handler = new de.sean.blockprot.bukkit.nbt.BlockNBTHandler(neighbor);
+            if (handler.isProtected() && !handler.isOwner(placer)) return true;
+        }
+        return false;
+    }
+
     public static @NotNull String capitalizeFirstLetters(@NotNull String str) {
         String n = (str.substring(0, 1).toUpperCase() + str.substring(1).toLowerCase());
         Matcher m = Pattern.compile("_[a-z]").matcher(n);

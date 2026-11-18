@@ -38,7 +38,6 @@ import de.sean.blockprot.cleanup.CleanupPlanner;
 import de.sean.blockprot.cleanup.LockRules;
 import de.sean.blockprot.cleanup.LockEntry;
 import org.bukkit.Location;
-import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
@@ -50,8 +49,6 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.EnumSet;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.Predicate;
 
@@ -188,7 +185,7 @@ public final class TownyIntegration extends PluginIntegration implements Listene
     /**
      * Removes the locks inside the plot. Owners listed in {@code keep} are left alone.
      */
-    private void removeAllProtections(@Nullable final WorldCoord worldCoord, @Nullable final Predicate<Material> typeFilter) {
+    private void removeAllProtections(@Nullable final WorldCoord worldCoord, @Nullable final Predicate<UUID> keep) {
         if (worldCoord == null) {
             return;
         }
@@ -197,9 +194,9 @@ public final class TownyIntegration extends PluginIntegration implements Listene
             worldCoord.getWorldName(),
             worldCoord.getX(), worldCoord.getZ(),
             TownySettings.getTownBlockSize(),
-            null);
+            keep);
         if (!locks.isEmpty()) {
-            LockCleaner.clear(locks, typeFilter);
+            LockCleaner.clear(locks);
         }
     }
 
@@ -328,10 +325,16 @@ public final class TownyIntegration extends PluginIntegration implements Listene
         if (!options().cleanupAfterUnclaim() || event.getTownBlock() == null) {
             return;
         }
-        // Only the blocks Towny itself removes lose their lock: a plot clear never opens a chest it leaves standing.
-        final Set<Material> removed = EnumSet.noneOf(Material.class);
-        removed.addAll(event.getTownBlock().getWorld().getPlotManagementMayorDelete());
-        removeAllProtections(event.getTownBlock().getWorldCoord(), removed::contains);
+        // On a town-owned plot the mayor or an assistant cleared it: every lock goes. On a resident's
+        // plot only that resident's own locks go: a plot owner (or a resident who just bought the plot)
+        // must not be able to clear away the locks of somebody else's chest that stands in the plot.
+        final var townBlock = event.getTownBlock();
+        final Resident owner = townBlock.hasResident() ? townBlock.getResidentOrNull() : null;
+        if (townBlock.hasResident() && owner == null) {
+            return;
+        }
+        final UUID ownerId = owner == null ? null : owner.getUUID();
+        removeAllProtections(townBlock.getWorldCoord(), ownerId == null ? null : lockOwner -> !lockOwner.equals(ownerId));
     }
 
     /** The town is ruined: every plot of it. The plots still belong to the town at this point. */

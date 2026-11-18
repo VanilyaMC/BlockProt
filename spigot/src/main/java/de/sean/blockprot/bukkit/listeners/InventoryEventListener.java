@@ -28,6 +28,7 @@ import de.sean.blockprot.bukkit.inventories.BlockProtInventory;
 import de.sean.blockprot.bukkit.inventories.InventoryState;
 import de.sean.blockprot.bukkit.nbt.BlockNBTHandler;
 import de.sean.blockprot.bukkit.nbt.FriendHandler;
+import de.sean.blockprot.bukkit.util.BlockUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.block.Block;
 import org.bukkit.block.Container;
@@ -70,29 +71,10 @@ public class InventoryEventListener implements Listener {
             }
         } else {
             // No state, let's check if they're in some block inventory.
-            final Block lockedBlock = lockableBlockOf(event.getInventory().getHolder());
-            if (lockedBlock != null && !BlockProt.getDefaultConfig().isWorldExcluded(lockedBlock.getWorld())) {
-                // Ok, we have a lockable block, check if they can write anything to this.
-                BlockNBTHandler handler = new BlockNBTHandler(lockedBlock);
-                String playerUuid = player.getUniqueId().toString();
-
-                if (handler.isProtected() && !handler.isOwner(playerUuid)
-                    && !player.hasPermission(Permissions.BYPASS.key())) {
-                    final var friend = handler.getFriend(playerUuid);
-                    if (friend.isPresent()) {
-                        if (!friend.get().canWrite()) {
-                            event.setCancelled(true);
-                        } else if (!friend.get().canRead()) {
-                            event.setCancelled(true);
-                            player.closeInventory();
-                        }
-                    } else {
-                        // The player is not a friend and not the owner; they shouldn't have
-                        // access anyway.
-                        player.closeInventory();
-                        event.setCancelled(true);
-                    }
-                }
+            final Boolean denied = denial(player, event.getInventory().getHolder(), true);
+            if (denied != null) {
+                event.setCancelled(true);
+                if (denied) player.closeInventory();
             }
         }
     }
@@ -108,30 +90,34 @@ public class InventoryEventListener implements Listener {
             event.setCancelled(true); // Never drag anything around in a menu.
             return;
         }
-        final Block lockedBlock = lockableBlockOf(event.getInventory().getHolder());
-        if (lockedBlock == null || BlockProt.getDefaultConfig().isWorldExcluded(lockedBlock.getWorld())) return;
-
-        BlockNBTHandler handler = new BlockNBTHandler(lockedBlock);
-        String playerUuid = player.getUniqueId().toString();
-        if (handler.isProtected() && !handler.isOwner(playerUuid)
-            && !player.hasPermission(Permissions.BYPASS.key())) {
-            final var friend = handler.getFriend(playerUuid);
-            if (friend.isEmpty() || !friend.get().canWrite() || !friend.get().canRead()) {
-                event.setCancelled(true);
-            }
+        if (denial(player, event.getInventory().getHolder(), true) != null) {
+            event.setCancelled(true);
         }
     }
 
-    /** The lockable block behind an inventory holder, single chests and double chests alike. */
-    private static Block lockableBlockOf(InventoryHolder holder) {
-        Block block = null;
-        if (holder instanceof Container container) {
-            block = container.getBlock();
-        } else if (holder instanceof DoubleChest doubleChest && doubleChest.getLeftSide() instanceof Container left) {
-            block = left.getBlock();
+    /** The lockable blocks behind an inventory holder, both halves of a double chest. */
+    private static java.util.List<Block> lockableBlocksOf(InventoryHolder holder) {
+        return BlockUtil.blocksOf(holder).stream()
+            .filter(b -> BlockProt.getDefaultConfig().isLockable(b.getType())
+                && !BlockProt.getDefaultConfig().isWorldExcluded(b.getWorld()))
+            .toList();
+    }
+
+    /**
+     * Whether the player may take part in this container's inventory: true when no half is locked,
+     * or the player owns, or is a friend of, every locked half.
+     * @return null when everything is fine, else the reason to cancel: true = also close the window.
+     */
+    private static Boolean denial(Player player, InventoryHolder holder, boolean writing) {
+        final String uuid = player.getUniqueId().toString();
+        for (final Block block : lockableBlocksOf(holder)) {
+            final BlockNBTHandler handler = new BlockNBTHandler(block);
+            if (!handler.isProtected() || handler.isOwner(uuid) || player.hasPermission(Permissions.BYPASS.key())) continue;
+            final var friend = handler.getFriend(uuid);
+            if (friend.isEmpty() || !friend.get().canRead()) return true;
+            if (writing && !friend.get().canWrite()) return false;
         }
-        if (block == null || !BlockProt.getDefaultConfig().isLockable(block.getType())) return null;
-        return block;
+        return null;
     }
 
     @EventHandler
@@ -195,21 +181,20 @@ public class InventoryEventListener implements Listener {
             }
         } else if ((holder instanceof Container || holder instanceof DoubleChest)
             && event.getPlayer() instanceof Player player) {
-            final Block block = lockableBlockOf(holder);
-
-            if (block != null && !BlockProt.getDefaultConfig().isWorldExcluded(block.getWorld())) {
-                BlockAccessEvent accessEvent = new BlockAccessEvent(block, (Player) event.getPlayer());
+            for (final Block block : lockableBlocksOf(holder)) {
+                BlockAccessEvent accessEvent = new BlockAccessEvent(block, player);
                 Bukkit.getPluginManager().callEvent(accessEvent);
                 if (accessEvent.isCancelled()) {
                     event.setCancelled(true);
                     sendMessage(player, Translator.get(TranslationKey.MESSAGES__NO_PERMISSION));
-                } else {
-                    BlockNBTHandler handler = new BlockNBTHandler(block);
-                    if (!accessEvent.shouldBypassProtections()
-                            && !(handler.canAccess(player.getUniqueId().toString()) || player.hasPermission(Permissions.BYPASS.key()))) {
-                        event.setCancelled(true);
-                        sendMessage(player, Translator.get(TranslationKey.MESSAGES__NO_PERMISSION));
-                    }
+                    return;
+                }
+                BlockNBTHandler handler = new BlockNBTHandler(block);
+                if (!accessEvent.shouldBypassProtections()
+                    && !(handler.canAccess(player.getUniqueId().toString()) || player.hasPermission(Permissions.BYPASS.key()))) {
+                    event.setCancelled(true);
+                    sendMessage(player, Translator.get(TranslationKey.MESSAGES__LOCKED));
+                    return;
                 }
             }
         }

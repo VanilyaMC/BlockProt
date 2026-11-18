@@ -5,8 +5,9 @@
 cleanup_plots_after_unclaim: true
 
 # Claiming, buying, selling, evicting a plot or changing plot permissions never
-# opens a lock: whoever locked a block keeps the lock. A plot clear only removes
-# the locks of the block types Towny's plot clear deletes anyway.
+# opens a lock: whoever locked a block keeps the lock. A plot clear removes all
+# locks on a town-owned plot, and on a resident's plot only that resident's own
+# locks (never the locks of somebody else's chest standing in it).
 
 # When a resident leaves a town or is kicked, the locks they hold inside it are
 # marked. They stay locked to their owner and run out after
