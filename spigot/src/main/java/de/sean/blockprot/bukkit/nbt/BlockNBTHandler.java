@@ -20,6 +20,7 @@ package de.sean.blockprot.bukkit.nbt;
 
 import de.sean.blockprot.bukkit.BlockProt;
 import de.sean.blockprot.bukkit.Permissions;
+import de.sean.blockprot.bukkit.Translator;
 import de.sean.blockprot.bukkit.nbt.stats.PlayerBlocksStatistic;
 import de.sean.blockprot.bukkit.util.BlockUtil;
 import de.sean.blockprot.nbt.FriendModifyAction;
@@ -124,7 +125,10 @@ public final class BlockNBTHandler extends FriendSupportingHandler<NBTCompound> 
      * @since 0.2.3
      */
     public boolean isNotProtected() {
-        return getOwner().isEmpty() && getFriends().isEmpty();
+        final String owner = getOwner();
+        // The lock of a player who has not been around for a long time does not count.
+        if (!owner.isEmpty() && InactivityGuard.isExpired(owner)) return true;
+        return owner.isEmpty() && getFriends().isEmpty();
     }
 
     /**
@@ -158,7 +162,7 @@ public final class BlockNBTHandler extends FriendSupportingHandler<NBTCompound> 
 
     public @NotNull String getName() {
         if (!container.hasTag(NAME_ATTRIBUTE))
-            return block.getType().toString();
+            return Translator.material(block.getType());
         return container.getString(NAME_ATTRIBUTE);
     }
 
@@ -222,31 +226,40 @@ public final class BlockNBTHandler extends FriendSupportingHandler<NBTCompound> 
         String owner = getOwner();
         final String playerUuid = player.getUniqueId().toString();
 
-        if (owner.isEmpty()) {
+        if (owner.isEmpty() || InactivityGuard.isExpired(owner)) {
+            // A lock left behind by a player who is long gone is taken over.
+            if (!owner.isEmpty()) {
+                forgetOwnerStatistic(owner);
+                this.clear();
+            }
+
             // Check if the player is not exceeding their max block count.
             Integer maxBlockCount = BlockProt.getDefaultConfig().getMaxLockedBlockCount();
             if (maxBlockCount != null) {
                 PlayerBlocksStatistic playerBlocksStatistic = new PlayerBlocksStatistic();
-                StatHandler.getStatistic(playerBlocksStatistic, player);
-                if (player.hasPermission("blockprot.lockmax")){
-                    List<PermissionAttachmentInfo> lists = new ArrayList<>(player.getEffectivePermissions());
+                int lockedCount;
+                synchronized (StatHandler.lock()) {
+                    StatHandler.getStatistic(playerBlocksStatistic, player);
+                    lockedCount = playerBlocksStatistic.get().size();
+                }
+                int limit = maxBlockCount;
+                if (player.hasPermission("blockprot.lockmax")) {
+                    // Without a number this removes the limit, with numbers the highest one wins.
+                    limit = Integer.MAX_VALUE;
                     Integer highestValueFound = null;
-                    for (int i = -1; ++i < lists.size(); ) {
-                        PermissionAttachmentInfo permission = lists.get(i);
-                        if (permission.getPermission().toLowerCase().startsWith("blockprot.locklimit.") && permission.getValue()) {
-                            String foundValue = permission.getPermission().toLowerCase().replace("blockprot.locklimit.", "");
+                    for (PermissionAttachmentInfo permission : player.getEffectivePermissions()) {
+                        if (permission.getPermission().toLowerCase(Locale.ENGLISH).startsWith("blockprot.locklimit.") && permission.getValue()) {
+                            String foundValue = permission.getPermission().toLowerCase(Locale.ENGLISH).replace("blockprot.locklimit.", "");
                             if (isNotNumeric(foundValue)) continue;
-
-                            if (Integer.parseInt(foundValue) > (highestValueFound == null ? 0 : highestValueFound)) {
-                                highestValueFound = Integer.parseInt(foundValue);
+                            int value = Integer.parseInt(foundValue);
+                            if (highestValueFound == null || value > highestValueFound) {
+                                highestValueFound = value;
                             }
                         }
                     }
-
-                    if (highestValueFound != null && playerBlocksStatistic.get().size() >= highestValueFound){
-                        return new LockReturnValue(false, LockReturnValue.Reason.EXCEEDED_MAX_BLOCK_COUNT);
-                    }
-                } else if (playerBlocksStatistic.get().size() >= maxBlockCount) {
+                    if (highestValueFound != null) limit = highestValueFound;
+                }
+                if (lockedCount >= limit) {
                     return new LockReturnValue(false, LockReturnValue.Reason.EXCEEDED_MAX_BLOCK_COUNT);
                 }
             }
@@ -258,13 +271,30 @@ public final class BlockNBTHandler extends FriendSupportingHandler<NBTCompound> 
             StatHandler.addBlock(player, block.getLocation());
             return new LockReturnValue(true, null);
         } else if (owner.equals(playerUuid) || player.isOp() || player.hasPermission(Permissions.ADMIN.key())) {
-            StatHandler.removeContainer(player, block);
-            this.clear();
-            this.applyToOtherContainer();
+            unlock();
             return new LockReturnValue(true, null);
         }
 
         return new LockReturnValue(false, LockReturnValue.Reason.NO_PERMISSION);
+    }
+
+    /**
+     * Takes the lock off this block whoever owns it, and forgets it in the owner's statistics.
+     * Callers decide whether the player is allowed to (owner, admin, mayor on a town plot).
+     */
+    public void unlock() {
+        forgetOwnerStatistic(getOwner());
+        this.clear();
+        this.applyToOtherContainer();
+    }
+
+    private void forgetOwnerStatistic(@NotNull final String owner) {
+        if (owner.isEmpty()) return;
+        try {
+            StatHandler.removeContainer(UUID.fromString(owner), block);
+        } catch (IllegalArgumentException ignored) {
+            // The owner is not a UUID, so there is no statistic for it.
+        }
     }
 
     /**

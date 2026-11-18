@@ -20,7 +20,7 @@ package de.sean.blockprot.bukkit.commands;
 
 import de.sean.blockprot.bukkit.BlockProtAPI;
 import de.sean.blockprot.bukkit.integrations.PluginIntegration;
-import net.md_5.bungee.api.chat.ComponentBuilder;
+import de.sean.blockprot.bukkit.Messages;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.jetbrains.annotations.NotNull;
@@ -38,16 +38,8 @@ public class IntegrationsCommand implements CommandExecutor {
             .filter(PluginIntegration::isEnabled)
             .toList();
 
-        var builder = new ComponentBuilder();
-        builder.append("§7Enabled integrations (" + enabledIntegrations.size() + "): ");
-
-        for (int i = 0; i < enabledIntegrations.size(); ++i) {
-            builder.append("§6" + enabledIntegrations.get(i).name);
-            if (i < enabledIntegrations.size() - 1)
-                builder.append("§7, ");
-        }
-
-        sender.spigot().sendMessage(builder.create());
+        final var names = enabledIntegrations.stream().map(i -> i.name).toList();
+        Messages.chat(sender, "§7Entegrasyonlar (" + names.size() + "): §6" + String.join("§7, §6", names));
         return true;
     }
 

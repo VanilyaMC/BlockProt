@@ -22,11 +22,6 @@ import de.sean.blockprot.bukkit.*;
 import de.sean.blockprot.bukkit.events.BlockAccessEvent;
 import de.sean.blockprot.bukkit.nbt.BlockNBTHandler;
 import de.sean.blockprot.bukkit.nbt.PlayerSettingsHandler;
-import net.md_5.bungee.api.ChatMessageType;
-import net.md_5.bungee.api.chat.ClickEvent;
-import net.md_5.bungee.api.chat.HoverEvent;
-import net.md_5.bungee.api.chat.TextComponent;
-import net.md_5.bungee.api.chat.hover.content.Text;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.block.data.type.Lectern;
@@ -36,23 +31,41 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.jetbrains.annotations.NotNull;
 
-import javax.annotation.Nullable;
-import java.util.HashMap;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class InteractEventListener implements Listener {
+    /**
+     * Spawners are handled earlier than everything else. The spawner plugin opens its own menu on a
+     * right click as soon as nobody has cancelled the event, so the lock must speak first.
+     */
+    @EventHandler(priority = EventPriority.LOW)
+    public void spawnerInteract(PlayerInteractEvent event) {
+        if (event.getClickedBlock() == null || event.getClickedBlock().getType() != Material.SPAWNER) return;
+        handle(event);
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void playerInteract(PlayerInteractEvent event) {
+        if (event.getClickedBlock() == null || event.getClickedBlock().getType() == Material.SPAWNER) return;
+        handle(event);
+    }
+
+    private void handle(PlayerInteractEvent event) {
         // The InsaneShops plugin uses this weird FakeEvent event that inherits from PlayerInteractEvent.
         // We don't want to trigger on that interact event, so here's this check.
         if (event.getClass().getName().equals("Lme.TechsCode.InsaneShops.utilities.FakeEvent;"))
             return;
 
         if (event.getClickedBlock() == null) return;
+        if (event.getHand() != EquipmentSlot.HAND) return; // The off hand fires the event a second time.
         if (BlockProt.getDefaultConfig().isWorldExcluded(event.getClickedBlock().getWorld())) return;
-        if (!BlockProt.getDefaultConfig().isLockable(event.getClickedBlock().getState().getType())) return;
+        if (!BlockProt.getDefaultConfig().isLockable(event.getClickedBlock().getType())) return;
         if (event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
 
         Player player = event.getPlayer();
@@ -64,10 +77,13 @@ public class InteractEventListener implements Listener {
                 sendMessage(player, Translator.get(TranslationKey.MESSAGES__NO_PERMISSION));
             } else {
                 BlockNBTHandler handler = new BlockNBTHandler(event.getClickedBlock());
-                if (!(handler.canAccess(player.getUniqueId().toString()) || player.hasPermission(Permissions.BYPASS.key()))) {
+                if (!(accessEvent.shouldBypassProtections()
+                    || handler.canAccess(player.getUniqueId().toString())
+                    || player.hasPermission(Permissions.BYPASS.key()))) {
                     event.setCancelled(true);
                     sendMessage(player, Translator.get(TranslationKey.MESSAGES__NO_PERMISSION));
-                } else if (event.getClickedBlock().getType() == Material.LECTERN && !handler.isOwner(player.getUniqueId())) {
+                } else if (event.getClickedBlock().getType() == Material.LECTERN && !handler.isOwner(player.getUniqueId())
+                    && !accessEvent.shouldBypassProtections()) {
                     // With Lecterns you place the books by interacting with the block. canAccess will return true because the
                     // player has the READ permission, but this should not be allowed in this case. In the case that the player
                     // wants to take the book from the lectern (hasBook returns true) we already listen for PlayerTakeLecternBookEvent.
@@ -82,15 +98,14 @@ public class InteractEventListener implements Listener {
                     }
                 } else if (!(new PlayerSettingsHandler(player).hasPlayerInteractedWithMenu())) {
                     Long timestamp = LockHintMessageCooldown.getTimestamp(player);
-                    if (timestamp == null || timestamp < System.currentTimeMillis() - (BlockProt.getDefaultConfig().getLockHintCooldown() * 1000)) { // 10 seconds in milliseconds
+                    if (timestamp == null || timestamp < System.currentTimeMillis() - (BlockProt.getDefaultConfig().getLockHintCooldown() * 1000)) {
                         // If they can access the block we'll notify them that they could
                         // potentially lock their blocks.
                         String message = Translator.get(TranslationKey.MESSAGES__LOCK_HINT);
                         if (!message.isEmpty()) {
                             LockHintMessageCooldown.setTimestamp(player);
                             var tooltip = Translator.get(TranslationKey.MESSAGES__HINT_HOVER_TEXT);
-                            sendEventsMessage(player, message, ChatMessageType.CHAT,
-                                "/blockprot disablehints", tooltip.isEmpty() ? null : tooltip);
+                            Messages.clickable(player, message, "/blockprot disablehints", tooltip);
                         }
                     }
                 }
@@ -114,31 +129,28 @@ public class InteractEventListener implements Listener {
         }
     }
 
-    private void sendMessage(@NotNull Player player, @NotNull String component) {
-        sendMessage(player, component, ChatMessageType.ACTION_BAR);
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        LockHintMessageCooldown.remove(event.getPlayer());
     }
 
-    private void sendMessage(@NotNull Player player, @NotNull String component, @NotNull ChatMessageType type) {
-        player.spigot().sendMessage(type, TextComponent.fromLegacyText(component));
-    }
-
-    private void sendEventsMessage(@NotNull Player player, @NotNull String component, @NotNull ChatMessageType type, @Nullable String command, @Nullable String tooltip) {
-        final var message = new TextComponent(component);
-        if (command != null) message.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, command));
-        if (tooltip != null) message.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new Text(tooltip)));
-        player.spigot().sendMessage(type, message);
+    private void sendMessage(@NotNull Player player, @NotNull String message) {
+        Messages.actionBar(player, message);
     }
 
     private static class LockHintMessageCooldown {
-        private static final HashMap<Player, Long> timestamps = new HashMap<>();
+        private static final ConcurrentHashMap<UUID, Long> timestamps = new ConcurrentHashMap<>();
 
         public static void setTimestamp(final @NotNull Player player) {
-            timestamps.put(player, System.currentTimeMillis());
+            timestamps.put(player.getUniqueId(), System.currentTimeMillis());
         }
 
-        @Nullable
         public static Long getTimestamp(final @NotNull Player player) {
-            return timestamps.get(player);
+            return timestamps.get(player.getUniqueId());
+        }
+
+        public static void remove(final @NotNull Player player) {
+            timestamps.remove(player.getUniqueId());
         }
     }
 }

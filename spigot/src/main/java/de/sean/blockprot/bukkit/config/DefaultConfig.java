@@ -19,7 +19,6 @@
 package de.sean.blockprot.bukkit.config;
 
 import de.sean.blockprot.bukkit.BlockProt;
-import de.tr7zw.changeme.nbtapi.utils.MinecraftVersion;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.DoubleChest;
@@ -42,24 +41,24 @@ public final class DefaultConfig extends BlockProtConfig {
     /**
      * A list of all lockable tile entities.
      */
-    private final ArrayList<Material> lockableTileEntities = new ArrayList<>();
+    private final Set<Material> lockableTileEntities = EnumSet.noneOf(Material.class);
 
     /**
      * A list of all available shulker boxes, so we
      * can save the protection state even after breaking.
      */
-    private final ArrayList<Material> shulkerBoxes = new ArrayList<>();
+    private final Set<Material> shulkerBoxes = EnumSet.noneOf(Material.class);
 
     /**
      * We can only lock normal blocks after 1.16.4. Therefore, in all versions prior this list will
      * be empty. Doors are separately listed inside of [lockableDoors].
      */
-    private final ArrayList<Material> lockableBlocks = new ArrayList<>();
+    private final Set<Material> lockableBlocks = EnumSet.noneOf(Material.class);
 
     /**
      * Doors are separate for LockUtil#applyToDoor and also only work after 1.16.4 Spigot.
      */
-    private final ArrayList<Material> lockableDoors = new ArrayList<>();
+    private final Set<Material> lockableDoors = EnumSet.noneOf(Material.class);
 
     private final ArrayList<InventoryType> lockableInventories = new ArrayList<>(Arrays.asList(
         InventoryType.CHEST, InventoryType.FURNACE, InventoryType.SMOKER, InventoryType.BLAST_FURNACE, InventoryType.HOPPER,
@@ -74,7 +73,7 @@ public final class DefaultConfig extends BlockProtConfig {
     private final HashSet<Material> knownGoodTileEntities = new HashSet<>(Arrays.asList(
             Material.CHEST, Material.TRAPPED_CHEST, Material.FURNACE, Material.SMOKER, Material.BLAST_FURNACE,
             Material.HOPPER, Material.BARREL, Material.BREWING_STAND, Material.DISPENSER, Material.DROPPER,
-            Material.LECTERN, Material.BEEHIVE, Material.BEE_NEST,
+            Material.LECTERN, Material.BEEHIVE, Material.BEE_NEST, Material.SPAWNER,
 
             Material.OAK_SIGN, Material.OAK_WALL_SIGN,
             Material.SPRUCE_SIGN, Material.SPRUCE_WALL_SIGN,
@@ -103,7 +102,7 @@ public final class DefaultConfig extends BlockProtConfig {
     }
 
     private <T extends Enum<?>> void loadBlockListFromConfig(
-            @NotNull String key, @NotNull final ArrayList<T> list, @NotNull final T[] enumValues, Function<T, Boolean> validateCallback) {
+            @NotNull String key, @NotNull final java.util.Collection<T> list, @NotNull final T[] enumValues, Function<T, Boolean> validateCallback) {
         List<?> configList = config.getList(key);
         if (configList == null) return;
         final var stringList = configList
@@ -132,10 +131,10 @@ public final class DefaultConfig extends BlockProtConfig {
      */
     private void loadBlocksFromConfig() {
         // Add some materials which are not valid in some versions
-        if (MinecraftVersion.isAtLeastVersion(MinecraftVersion.MC1_19_R1)) {
+        {
             this.knownGoodTileEntities.addAll(List.of(Material.MANGROVE_SIGN, Material.MANGROVE_WALL_SIGN));
         }
-        if (MinecraftVersion.isAtLeastVersion(MinecraftVersion.MC1_20_R1)) {
+        {
             this.knownGoodTileEntities.add(Material.CHISELED_BOOKSHELF);
             this.knownGoodTileEntities.addAll(List.of(Material.OAK_WALL_HANGING_SIGN, Material.OAK_HANGING_SIGN));
             this.knownGoodTileEntities.addAll(List.of(Material.SPRUCE_WALL_HANGING_SIGN, Material.SPRUCE_HANGING_SIGN));
@@ -155,7 +154,7 @@ public final class DefaultConfig extends BlockProtConfig {
         loadBlockListFromConfig("lockable_shulker_boxes", this.shulkerBoxes, Material.values(),
                 material -> material.toString().contains("SHULKER_BOX"));
 
-        if (MinecraftVersion.isAtLeastVersion(MinecraftVersion.MC1_16_R3)) {
+        {
             loadBlockListFromConfig("lockable_blocks", this.lockableBlocks, Material.values(),
                     material -> !knownGoodTileEntities.contains(material));
             loadBlockListFromConfig("lockable_doors", this.lockableDoors, Material.values(),
@@ -263,8 +262,7 @@ public final class DefaultConfig extends BlockProtConfig {
      * @since 0.4.11
      */
     public boolean lockOnPlaceByDefault() {
-        if (!this.config.contains("lock_on_place_by_default")) return true;
-        return this.config.getBoolean("lock_on_place_by_default");
+        return this.config.getBoolean("lock_on_place_by_default", false);
     }
 
     /**
@@ -318,6 +316,14 @@ public final class DefaultConfig extends BlockProtConfig {
             defaults.set("lockable_doors", null);
             this.config.setDefaults(defaults);
         }
+    }
+
+    /**
+     * After how many days without a visit the locks of a player stop protecting anything.
+     * Zero turns this off.
+     */
+    public int getLockExpiryDays() {
+        return Math.max(0, config.getInt("lock_expiry_days", 0));
     }
 
     public long getLockHintCooldown() {

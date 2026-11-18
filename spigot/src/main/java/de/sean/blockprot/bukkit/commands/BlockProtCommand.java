@@ -35,15 +35,9 @@ public final class BlockProtCommand implements TabExecutor {
     static Map<String, CommandExecutor> tabExecutors = new HashMap<>();
 
     static {
-        var statsCommand = new StatisticsCommand();
-        tabExecutors.put("stats", statsCommand);
-        tabExecutors.put("statistics", statsCommand);
         tabExecutors.put("settings", new SettingsCommand());
-        tabExecutors.put("about", new AboutCommand());
-        tabExecutors.put("update", new UpdateCommand());
         tabExecutors.put("reload", new ReloadCommand());
         tabExecutors.put("integrations", new IntegrationsCommand());
-        tabExecutors.put("debug", new DebugCommand());
         tabExecutors.put("disablehints", new HintsCommand());
     }
 

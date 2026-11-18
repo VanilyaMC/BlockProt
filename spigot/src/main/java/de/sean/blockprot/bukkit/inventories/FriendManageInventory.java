@@ -122,7 +122,10 @@ public final class FriendManageInventory extends BlockProtInventory {
                     closeAndOpen(player, inv);
                 }
             }
-            case MAP -> FriendSearchInventory.openAnvilInventory(player);
+            case MAP -> {
+                FriendSearchInventory.openNameDialog(player);
+                player.closeInventory();
+            }
             case BOOK -> closeAndOpen(player, new FriendSearchHistoryInventory().fill(player));
             case WITHER_SKELETON_SKULL -> {
                 applyChanges(
@@ -206,26 +209,12 @@ public final class FriendManageInventory extends BlockProtInventory {
             TranslationKey.INVENTORIES__FRIENDS__SEARCH);
         setBackButton();
 
-        BlockProt.getInstance().getFoliaLib().getScheduler().runAsync(
-            task -> {
-                try {
-                    final var profiles = BlockProt.getProfileService().findAllByUuid(state.friendResultCache);
-
-                    int i = 0;
-                    while (i < Math.min(maxSkulls, profiles.size())) {
-                        final var profile = profiles.get(i);
-                        // The profiles array doesn't necessarily have the same order as the friendResultCache.
-                        final var index = Iterables.indexOf(state.friendResultCache, f -> f.equals(profile.getUniqueId()));
-
-                        if (!profile.getUniqueId().equals(FriendSupportingHandler.publicUuid)) {
-                            setPlayerSkull(index, Bukkit.getServer().createPlayerProfile(profile.getUniqueId(), profile.getName()));
-                        }
-                        i++;
-                    }
-                } catch (Exception e) {
-                    BlockProt.getInstance().getLogger().warning("Failed to update PlayerProfile: " + e.getMessage());
-                }
-            });
+        for (int index = 0; index < Math.min(maxSkulls, state.friendResultCache.size()); index++) {
+            final UUID uuid = state.friendResultCache.get(index);
+            if (!uuid.equals(FriendSupportingHandler.publicUuid)) {
+                setPlayerSkull(index, profileFor(uuid));
+            }
+        }
 
         return inventory;
     }

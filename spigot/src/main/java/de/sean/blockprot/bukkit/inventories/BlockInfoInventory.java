@@ -131,9 +131,7 @@ public class BlockInfoInventory extends BlockProtInventory {
 
         if (!owner.isEmpty()) {
             try {
-                final var profile = BlockProt.getProfileService().findByUuid(UUID.fromString(owner));
-                assert profile != null;
-                setPlayerSkull(0, Bukkit.getServer().createPlayerProfile(profile.getUniqueId(), profile.getName()));
+                setPlayerSkull(0, profileFor(UUID.fromString(owner)));
             } catch (Exception e) {
                 BlockProt.getInstance().getLogger().warning("Failed to update PlayerProfile: " + e.getMessage());
             }
@@ -176,26 +174,15 @@ public class BlockInfoInventory extends BlockProtInventory {
         );
         setBackButton(InventoryConstants.lineLength - 1);
 
-        BlockProt.getInstance().getFoliaLib().getScheduler().runAsync(
-            task -> {
-                try {
-                    final var profiles = BlockProt.getProfileService().findAllByUuid(state.friendResultCache);
-
-                    var offset = state.friendResultCache.contains(FriendSupportingHandler.publicUuid) ? 1 : 0;
-                    int i = 0;
-                    while (i < Math.min(maxSkulls, profiles.size())) {
-                        final var profile = profiles.get(i);
-
-                        if (!profile.getUniqueId().equals(FriendSupportingHandler.publicUuid)) {
-                            setPlayerSkull(InventoryConstants.singleLine + offset + i, Bukkit.getServer().createPlayerProfile(profile.getUniqueId(), profile.getName()));
-                        }
-                        i++;
-                    }
-                } catch (Exception e) {
-                    BlockProt.getInstance().getLogger().warning("Failed to update PlayerProfile: " + e.getMessage());
-                }
+        var offset = state.friendResultCache.contains(FriendSupportingHandler.publicUuid) ? 1 : 0;
+        int shown = 0;
+        for (final UUID uuid : state.friendResultCache) {
+            if (shown >= maxSkulls) break;
+            if (!uuid.equals(FriendSupportingHandler.publicUuid)) {
+                setPlayerSkull(InventoryConstants.singleLine + offset + shown, profileFor(uuid));
+                shown++;
             }
-        );
+        }
 
         return inventory;
     }

@@ -1,18 +1,33 @@
 # BlockProt's Towny plugin integration config.
 
-# When a plot is cleared, unclaimed or the town is unclaimed
-# or gets ruined, whether or not we should cleanup block protections.
+# When a plot is cleared, unclaimed or the town is unclaimed (also while
+# a town is deleted) or gets ruined, the locks inside are removed.
 cleanup_plots_after_unclaim: true
+
+# When a plot is claimed, sold, handed back to the town or evicted, the
+# locks inside that do not belong to the new owner are removed.
+cleanup_on_plot_owner_change: true
+
+# When a resident leaves a town or is kicked, the locks they hold inside
+# that town are removed.
+cleanup_on_resident_leave: true
+
+# The mayor and the ranks listed below can take locks off blocks on plots
+# that belong to the town (not to a resident), and see who locked them.
+town_authority_can_unlock_town_plots: true
+town_authority_ranks:
+  - assistant
 
 # Restrict the access to residents only. If true, unlocked
 # blocks will be only accessible by town residents and only
 # residents can be added as friends.
 # Blocks however can always only be locked by residents.
+# Off: Towny's own plot permissions already decide who may use blocks.
 restrict_access_to_residents: false
 
 # This allows any Mayor to view the block info, similarly
 # to what the "blockprot.info" permission would do.
-allow_mayor_to_see_block_info: false
+allow_mayor_to_see_block_info: true
 
 # Whether or not players are allowed to bypass protections in
 # ruined towns.

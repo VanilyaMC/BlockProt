@@ -65,15 +65,21 @@ messages:
   redstone_removed: "Redstone protection removed."
   exceeded_max_block_count: "You have exceeded the maximum lockable block count."
   lock_hint: >
-    §6You can protect your blocks by crouching and right-clicking your chests, furnaces, and more!
-    Also, check out /blockprot settings to configure it to your liking.
+    §6You can protect your blocks by crouching and right-clicking them with an empty hand,
+    or by looking at them and typing /kilit.
     (Click here to disable these hints.)
-  hint_hover_text: "Open a menu from BlockProt or click here to disable hints."
+  hint_hover_text: "Click to disable these hints."
   disabled_hints: "§6Disabled hints!"
+  locked: "This block is locked."
+  players_only: "Only players can use this command."
+  look_at_block: "Look at a block that can be locked, like a chest, furnace or door."
+  kilit_usage: "§7Usage: §e/kilit arkadas <name>"
+  player_not_found: "There is no such player."
+  reloaded: "Settings reloaded."
 
-integrations:
-  lands:
-    protect_containers_flag_name: Protect containers (BlockProt)
-    protect_containers_desc: Allows a player to protect chests, furnaces, ...
-    require_protect_for_friends_flag_name: Require "Protect containers" for friends (BlockProt)
-    require_protect_for_friends_desc: Only players that have the "Protect containers" flag are eligible to be added as a friend.
+dialog:
+  confirm: "OK"
+  cancel: "Cancel"
+  player_name: "Player name"
+  block_name: "Block name"
+

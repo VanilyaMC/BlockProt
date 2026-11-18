@@ -24,6 +24,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Storage for the current state and location of each player's
@@ -38,7 +39,7 @@ public final class InventoryState {
      *
      * @since 0.4.7
      */
-    private static final HashMap<String, InventoryState> players = new HashMap<>();
+    private static final ConcurrentHashMap<String, InventoryState> players = new ConcurrentHashMap<>();
 
     /**
      * A local cache of offline players for this state.

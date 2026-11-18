@@ -19,29 +19,29 @@
 package de.sean.blockprot.bukkit.listeners;
 
 import de.sean.blockprot.bukkit.BlockProt;
+import de.sean.blockprot.bukkit.inventories.InventoryState;
+import de.sean.blockprot.bukkit.nbt.InactivityGuard;
 import de.sean.blockprot.bukkit.nbt.PlayerSettingsHandler;
-import de.sean.blockprot.bukkit.tasks.UpdateChecker;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
-
-import java.util.Collections;
+import org.bukkit.event.player.PlayerQuitEvent;
 
 public class JoinEventListener implements Listener {
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        if (BlockProt.getDefaultConfig().shouldNotifyOpOfUpdates() && player.isOp()) {
-            BlockProt.getInstance().getFoliaLib().getScheduler().runAsync(task ->
-                new UpdateChecker(
-                    BlockProt.getInstance().getDescription(),
-                    Collections.singletonList(player)
-                )
-            );
-        }
+        InactivityGuard.forget(player.getUniqueId());
         if (BlockProt.getDefaultConfig().publicIsFriendByDefault() && !player.hasPlayedBefore()) {
             new PlayerSettingsHandler(player).addEveryoneAsFriend();
         }
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        // The menu state is only useful while the player is here.
+        InventoryState.remove(event.getPlayer().getUniqueId());
+        InactivityGuard.forget(event.getPlayer().getUniqueId());
     }
 }

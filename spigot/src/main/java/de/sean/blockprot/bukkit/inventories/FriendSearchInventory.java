@@ -18,35 +18,48 @@
 
 package de.sean.blockprot.bukkit.inventories;
 
-import de.sean.blockprot.bukkit.BlockProt;
+import de.sean.blockprot.bukkit.Messages;
 import de.sean.blockprot.bukkit.TranslationKey;
 import de.sean.blockprot.bukkit.Translator;
-import net.wesjd.anvilgui.AnvilGUI;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.Inventory;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Unmodifiable;
-
-import java.util.Collections;
-import java.util.List;
 
 public class FriendSearchInventory {
-    public static void openAnvilInventory(@NotNull final Player requestingPlayer) {
-        (new AnvilGUI.Builder())
-            .onClick(FriendSearchInventory::onCompleteCallback)
-            .text("Name")
-            .title(Translator.get(TranslationKey.INVENTORIES__FRIENDS__SEARCH))
-            .plugin(BlockProt.getInstance())
-            .open(requestingPlayer);
+    /**
+     * Asks for a player name in a dialog. A name that matches a known player exactly adds that
+     * player right away; anything else shows the list of similar names.
+     */
+    public static void openNameDialog(@NotNull final Player requestingPlayer) {
+        TextDialog.ask(
+            requestingPlayer,
+            Translator.get(TranslationKey.INVENTORIES__FRIENDS__SEARCH),
+            Translator.get(TranslationKey.DIALOG__PLAYER_NAME),
+            "",
+            32,
+            text -> onSubmit(requestingPlayer, text),
+            () -> reopenFriendMenu(requestingPlayer));
     }
 
-    private static @NotNull @Unmodifiable List<AnvilGUI.ResponseAction> onCompleteCallback(@NotNull final Integer slot, @NotNull AnvilGUI.StateSnapshot snapshot) {
-        if (slot != AnvilGUI.Slot.OUTPUT) {
-            return Collections.emptyList();
+    private static void onSubmit(@NotNull final Player player, @NotNull final String text) {
+        final InventoryState state = InventoryState.get(player.getUniqueId());
+        if (state == null || text.isEmpty()) {
+            return;
         }
+        final var inventory = new FriendSearchResultInventory();
+        if (inventory.addExactMatch(player, text)) {
+            return;
+        }
+        final var results = inventory.fill(player, text);
+        if (results == null) {
+            Messages.actionBar(player, Translator.get(TranslationKey.MESSAGES__PLAYER_NOT_FOUND));
+            return;
+        }
+        player.openInventory(results);
+    }
 
-        Inventory inventory = new FriendSearchResultInventory().fill(snapshot.getPlayer(), snapshot.getText());
-        if (inventory == null) return List.of(AnvilGUI.ResponseAction.close());
-        return List.of(AnvilGUI.ResponseAction.openInventory(inventory));
+    private static void reopenFriendMenu(@NotNull final Player player) {
+        if (InventoryState.get(player.getUniqueId()) == null) return;
+        final var menu = new FriendManageInventory().fill(player);
+        if (menu != null) player.openInventory(menu);
     }
 }

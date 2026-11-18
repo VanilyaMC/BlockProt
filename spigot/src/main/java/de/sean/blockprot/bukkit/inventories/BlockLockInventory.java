@@ -25,7 +25,7 @@ import de.sean.blockprot.bukkit.Translator;
 import de.sean.blockprot.bukkit.events.BlockAccessMenuEvent;
 import de.sean.blockprot.bukkit.nbt.BlockNBTHandler;
 import de.sean.blockprot.bukkit.nbt.PlayerInventoryClipboard;
-import net.wesjd.anvilgui.AnvilGUI;
+import de.sean.blockprot.nbt.LockReturnValue;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
@@ -36,8 +36,6 @@ import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Collections;
-import java.util.List;
 
 public class BlockLockInventory extends BlockProtInventory {
     @Override
@@ -62,7 +60,15 @@ public class BlockLockInventory extends BlockProtInventory {
         if (BlockProt.getDefaultConfig().isLockable(block.getType()) && event.getSlot() == 0) {
             applyChanges(
                 player,
-                (handler) -> handler.lockBlock(player),
+                (handler) -> {
+                    if (state.menuPermissions.contains(BlockAccessMenuEvent.MenuPermission.FORCE_UNLOCK)
+                        && handler.isProtected() && !handler.isOwner(player.getUniqueId())) {
+                        // A mayor, an assistant or the spawner owner takes somebody else's lock off.
+                        handler.unlock();
+                        return new LockReturnValue(true, null);
+                    }
+                    return handler.lockBlock(player);
+                },
                 null
             );
             closeAndOpen(player, null);
@@ -107,25 +113,41 @@ public class BlockLockInventory extends BlockProtInventory {
                     }
                 }
                 case NAME_TAG -> {
+                    final var handler = getNbtHandlerOrNull(block);
+                    if (handler != null) {
+                        final String current = handler.getName();
+                        TextDialog.ask(
+                            player,
+                            Translator.get(TranslationKey.INVENTORIES__SET_BLOCK_NAME),
+                            Translator.get(TranslationKey.DIALOG__BLOCK_NAME),
+                            current,
+                            40,
+                            text -> {
+                                final var invState = InventoryState.get(player.getUniqueId());
+                                if (invState == null || invState.getBlock() == null) return;
+                                final var blockHandler = getNbtHandlerOrNull(invState.getBlock());
+                                // Only the owner and managers may rename: the menu is only open for them,
+                                // but the dialog can be answered later.
+                                if (blockHandler == null || (!blockHandler.isOwner(player.getUniqueId())
+                                    && !blockHandler.getFriend(player.getUniqueId().toString()).map(f -> f.isManager()).orElse(false))) {
+                                    return;
+                                }
+                                if (!text.isEmpty()) blockHandler.setName(text);
+                                final Inventory back = new BlockLockInventory()
+                                    .fill(player, invState.getBlock().getType(), blockHandler);
+                                if (back != null) player.openInventory(back);
+                            },
+                            () -> {
+                                final var invState = InventoryState.get(player.getUniqueId());
+                                if (invState == null || invState.getBlock() == null) return;
+                                final var blockHandler = getNbtHandlerOrNull(invState.getBlock());
+                                if (blockHandler == null) return;
+                                final Inventory back = new BlockLockInventory()
+                                    .fill(player, invState.getBlock().getType(), blockHandler);
+                                if (back != null) player.openInventory(back);
+                            });
+                    }
                     player.closeInventory();
-                    new AnvilGUI.Builder()
-                        .text("Block name")
-                        .title(Translator.get(TranslationKey.INVENTORIES__SET_BLOCK_NAME))
-                        .plugin(BlockProt.getInstance())
-                        .onClick((Integer slot, AnvilGUI.StateSnapshot snapshot) -> {
-                            if (slot != AnvilGUI.Slot.OUTPUT) {
-                                return Collections.emptyList();
-                            }
-
-                            var invState = InventoryState.get(snapshot.getPlayer().getUniqueId());
-                            assert(invState.getBlock() != null);
-
-                            new BlockNBTHandler(invState.getBlock()).setName(snapshot.getText());
-                            Inventory inventory = new BlockLockInventory().fill(player, block.getType(), new BlockNBTHandler(block));
-                            if (inventory == null) return List.of(AnvilGUI.ResponseAction.close());
-                            return List.of(AnvilGUI.ResponseAction.openInventory(inventory));
-                        })
-                        .open(player);
                 }
                 case SPYGLASS -> closeAndOpen(player, new BlockInspectContentsInventory(player).fill());
                 default -> closeAndOpen(

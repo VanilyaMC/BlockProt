@@ -18,6 +18,7 @@
 
 package de.sean.blockprot.bukkit.commands;
 
+import de.sean.blockprot.bukkit.Messages;
 import de.sean.blockprot.bukkit.TranslationKey;
 import de.sean.blockprot.bukkit.Translator;
 import de.sean.blockprot.bukkit.nbt.PlayerSettingsHandler;
@@ -36,8 +37,7 @@ public class HintsCommand implements CommandExecutor {
         var settings = new PlayerSettingsHandler(player);
         if (!settings.hasPlayerInteractedWithMenu()) {
             settings.setHasPlayerInteractedWithMenu(true);
-            sender.sendMessage(
-                Translator.get(TranslationKey.MESSAGES__DISABLED_HINTS));
+            Messages.chat(sender, Translator.get(TranslationKey.MESSAGES__DISABLED_HINTS));
         }
         return true;
     }

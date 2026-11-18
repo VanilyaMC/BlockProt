@@ -29,7 +29,6 @@ import org.bukkit.plugin.PluginManager;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.annotation.CheckReturnValue;
 import java.util.ArrayList;
 import java.util.UUID;
 import java.util.function.Predicate;
@@ -96,7 +95,6 @@ public abstract class PluginIntegration {
      * @since 0.4.0
      * @deprecated
      */
-    @CheckReturnValue
     @Deprecated
     public static @NotNull ArrayList<OfflinePlayer> filterFriends(@NotNull final ArrayList<OfflinePlayer> friendsInput,
                                                                   @NotNull final Player player,
@@ -153,6 +151,28 @@ public abstract class PluginIntegration {
         }
 
         return true;
+    }
+
+    /**
+     * Whether another plugin gives {@code player} the rights of the lock owner on {@code block},
+     * for example because that plugin records the player as the owner of the block itself.
+     * Used when breaking a locked block.
+     *
+     * @return True if any enabled integration says so.
+     */
+    public static boolean ownerRightsForAll(@NotNull final Player player, @NotNull final Block block) {
+        for (var integration : BlockProt.getInstance().getIntegrations()) {
+            if (integration.isEnabled() && integration.hasOwnerRights(player, block)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * An integration can override this to give a player the rights of the lock owner.
+     * By default nobody gets them.
+     */
+    protected boolean hasOwnerRights(@NotNull final Player player, @NotNull final Block block) {
+        return false;
     }
 
     /**

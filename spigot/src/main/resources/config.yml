@@ -4,7 +4,7 @@
 # You can create your own language files and edit existing ones.
 # Translations can be missing from this file and will instead be loaded
 # from an internal version of "translations_en.yml".
-language_file: translations_en.yml
+language_file: translations_tr.yml
 
 # The fallback translation when the translation was not found in the
 # language_file specified above, and it was also missing from the resources
@@ -18,12 +18,6 @@ fallback_string: "Unknown translation"
 # this false, it is however always recommended to make your own, custom file.
 replace_translations: true
 
-# If set to "true", anytime an admin joins the server, they will
-# receive an in-game message if this plugin is outdated.
-# If set to "false", no message will be sent but /blockprot update
-# will still work.
-notify_op_of_updates: false
-
 # If set to "true", redstone will be automatically disallowed on every
 # placed block, if the player has lock on place enabled.
 redstone_disallowed_by_default: false
@@ -36,12 +30,17 @@ redstone_disallowed_by_default: false
 #   - world_end
 excluded_worlds: [ ]
 
-# Setting this to 'false' will make every new player have
-# their "lock on place" setting disabled. This will be by
-# default set to 'true'.
-# Note: This does NOT affect players who have previously
-# played on the server.
-lock_on_place_by_default: true
+# Blocks are locked from the menu (crouch + right click with an empty
+# hand, or /kilit). Setting this to 'true' would lock every placed block
+# automatically for players who did not choose themselves. Off by default.
+# Note: This does NOT affect players who already chose a setting.
+lock_on_place_by_default: false
+
+# Locks of players who have not joined for this many days stop protecting
+# anything: others can open and break those blocks, and anybody can lock
+# them again. This is how locked chests of players who left for good do not
+# block a town. 0 turns this off.
+lock_expiry_days: 30
 
 # Setting this to 'true' will make "the public" a friend by
 # default.
@@ -50,7 +49,7 @@ public_is_friend_by_default: false
 # The maximum amount of blocks a player can lock. If removed
 # or set to any negative value, this is interpreted as setting
 # no limit.
-player_max_locked_block_count: -1
+player_max_locked_block_count: 100
 
 # The cooldown between messages hinting players that they can
 # protect their blocks.
@@ -70,7 +69,9 @@ disable_friend_functionality: false
 
 # Tile entities that should be locked. Tile entities are blocks
 # that can contain items. You can find a detailed list of all
-# possible values at https://hub.spigotmc.org/javadocs/bukkit/org/bukkit/Material.html.
+# possible values at https://jd.papermc.io/paper/org/bukkit/Material.html.
+# SPAWNER follows the spawner plugin's owner: only the owner of a placed
+# spawner can lock it, and spawners nobody placed cannot be locked.
 lockable_tile_entities:
   - CHEST
   - TRAPPED_CHEST
@@ -83,6 +84,7 @@ lockable_tile_entities:
   - DISPENSER
   - DROPPER
   - LECTERN
+  - SPAWNER
 
 # All varieties of shulker boxes that should be lockable.
 lockable_shulker_boxes:
@@ -105,11 +107,7 @@ lockable_shulker_boxes:
   - YELLOW_SHULKER_BOX
 
 # Blocks that should be lockable.
-# This only works with Spigot 1.16.4 or higher.
 lockable_blocks:
-  - ANVIL
-  - CHIPPED_ANVIL
-  - DAMAGED_ANVIL
   - ACACIA_FENCE_GATE
   - ACACIA_TRAPDOOR
   - BAMBOO_FENCE_GATE
@@ -144,7 +142,6 @@ lockable_blocks:
   - WAXED_WEATHERED_COPPER_TRAPDOOR
 
 # Doors are two blocks and are therefore handled differently.
-# This only works with Spigot 1.16.4 or higher.
 lockable_doors:
   - ACACIA_DOOR
   - BAMBOO_DOOR

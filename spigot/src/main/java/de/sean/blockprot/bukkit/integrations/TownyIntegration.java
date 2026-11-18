@@ -22,6 +22,8 @@ import com.palmergames.bukkit.towny.Towny;
 import com.palmergames.bukkit.towny.TownyAPI;
 import com.palmergames.bukkit.towny.TownySettings;
 import com.palmergames.bukkit.towny.event.PlotClearEvent;
+import com.palmergames.bukkit.towny.event.TownRemoveResidentEvent;
+import com.palmergames.bukkit.towny.event.plot.changeowner.PlotChangeOwnerEvent;
 import com.palmergames.bukkit.towny.event.town.TownRuinedEvent;
 import com.palmergames.bukkit.towny.event.town.TownUnclaimEvent;
 import com.palmergames.bukkit.towny.object.*;
@@ -30,9 +32,12 @@ import de.sean.blockprot.bukkit.BlockProt;
 import de.sean.blockprot.bukkit.events.BlockAccessEvent;
 import de.sean.blockprot.bukkit.events.BlockAccessMenuEvent;
 import de.sean.blockprot.bukkit.events.BlockLockOnPlaceEvent;
-import de.sean.blockprot.bukkit.nbt.BlockNBTHandler;
+import de.sean.blockprot.bukkit.nbt.LockCleaner;
+import de.sean.blockprot.bukkit.nbt.StatHandler;
+import de.sean.blockprot.cleanup.CleanupPlanner;
+import de.sean.blockprot.cleanup.LockEntry;
+import org.bukkit.Location;
 import org.bukkit.OfflinePlayer;
-import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -42,17 +47,15 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
+/**
+ * Towny integration. Locks follow the land: when land is cleared, handed over, unclaimed or
+ * ruined, or when a resident leaves, the locks that no longer make sense are removed. Mayors and
+ * their assistants can take locks off blocks on town-owned plots.
+ */
 public final class TownyIntegration extends PluginIntegration implements Listener {
-    private static final String CLEANUP_PLOTS_AFTER_UNCLAIM = "cleanup_plots_after_unclaim";
-
-    private static final String RESTRICT_ACCESS_TO_RESIDENTS = "restrict_access_to_residents";
-
-    private static final String ALLOW_MAYOR_TO_SEE_BLOCK_INFO = "allow_mayor_to_see_block_info";
-
-    private static final String BYPASS_PROTECTIONS_IN_RUINED_TOWNS = "bypass_protection_in_ruined_towns";
-
     /**
      * Our Towny plugin instance. Might be null if towny was not found.
      */
@@ -101,7 +104,7 @@ public final class TownyIntegration extends PluginIntegration implements Listene
                                          @NotNull final Block block) {
         if (towny == null
             || TownyAPI.getInstance().isWilderness(block)
-            || !shouldRestrictAccessToResidents()) {
+            || !options().restrictAccessToResidents()) {
             return;
         }
 
@@ -128,7 +131,7 @@ public final class TownyIntegration extends PluginIntegration implements Listene
                                          @NotNull final Block block) {
         if (towny == null
             || TownyAPI.getInstance().isWilderness(block)
-            || !shouldRestrictAccessToResidents()) {
+            || !options().restrictAccessToResidents()) {
             return true;
         }
 
@@ -144,50 +147,8 @@ public final class TownyIntegration extends PluginIntegration implements Listene
         return resident != null && town.hasResident(resident);
     }
 
-    /**
-     * Restrict the access to residents only. If true, unlocked
-     * blocks will be only accessible by town residents and only
-     * residents can be added as friends.
-     * Blocks however can always only be locked by residents.
-     *
-     * @return Boolean if we should restrict access to residents.
-     */
-    private boolean shouldRestrictAccessToResidents() {
-        return configuration.contains(RESTRICT_ACCESS_TO_RESIDENTS)
-            && configuration.getBoolean(RESTRICT_ACCESS_TO_RESIDENTS);
-    }
-
-    /**
-     * This allows any Mayor to view the block info, similarly
-     * to what the "blockprot.info" permission would do.
-     *
-     * @return Boolean if we should allow mayors to see block info.
-     */
-    private boolean shouldAllowMayorToSeeBlockInfo() {
-        return configuration.contains(ALLOW_MAYOR_TO_SEE_BLOCK_INFO)
-            && configuration.getBoolean(ALLOW_MAYOR_TO_SEE_BLOCK_INFO);
-    }
-
-    /**
-     * When a plot is cleared, unclaimed or the town is unclaimed
-     * or gets ruined, whether or not we should cleanup block protections.
-     *
-     * @return Boolean if we should cleanup plots.
-     */
-    private boolean shouldCleanupAfterUnclaim() {
-        return configuration.contains(CLEANUP_PLOTS_AFTER_UNCLAIM)
-            || configuration.getBoolean(CLEANUP_PLOTS_AFTER_UNCLAIM);
-    }
-
-    /**
-     * Whether or not players are allowed to bypass protections in
-     * ruined towns.
-     *
-     * @return Boolean if the protections should be bypassed.
-     */
-    private boolean shouldBypassProtectionsInRuinedTowns() {
-        return configuration.contains(BYPASS_PROTECTIONS_IN_RUINED_TOWNS)
-            || configuration.getBoolean(BYPASS_PROTECTIONS_IN_RUINED_TOWNS);
+    private TownyOptions options() {
+        return new TownyOptions(configuration);
     }
 
     private boolean residentEqualsPlayer(@Nullable final Resident resident,
@@ -206,33 +167,34 @@ public final class TownyIntegration extends PluginIntegration implements Listene
     }
 
     /**
-     * Clear the protection of all blocks that are inside of the area
-     * of {@code worldCoord}.
-     *
-     * @param worldCoord The region to clear protections for.
+     * Whether the player may remove locks on town-owned plots of {@code town}: the mayor, or a
+     * resident with one of the configured ranks (assistants by default).
      */
-    private void removeAllProtections(@Nullable final WorldCoord worldCoord) {
+    private boolean isTownAuthority(@NotNull final Town town, @NotNull final Player player) {
+        final Resident resident = TownyAPI.getInstance().getResident(player);
+        if (resident == null || !town.hasResident(resident)) return false;
+        if (town.isMayor(resident)) return true;
+        for (final String rank : options().townAuthorityRanks()) {
+            if (resident.hasTownRank(rank)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Removes the locks inside the plot. Owners listed in {@code keep} are left alone.
+     */
+    private void removeAllProtections(@Nullable final WorldCoord worldCoord, @Nullable final UUID keep) {
         if (worldCoord == null) {
             return;
         }
-
-        World world = worldCoord.getBukkitWorld();
-        int height = world.getMaxHeight() - 1;
-        int size = TownySettings.getTownBlockSize();
-        for (int x = 0; x < size; ++x) {
-            for (int z = 0; z < size; ++z) {
-                for (int y = height; y > 0; --y) {
-                    int blockX = worldCoord.getX() * size + x;
-                    int blockZ = worldCoord.getZ() * size + z;
-                    Block block = world.getBlockAt(blockX, y, blockZ);
-                    if (!BlockProt.getDefaultConfig()
-                        .isLockable(block.getType())) {
-                        continue;
-                    }
-                    BlockNBTHandler handler = new BlockNBTHandler(block);
-                    handler.clear();
-                }
-            }
+        final List<LockEntry> locks = CleanupPlanner.inPlot(
+            StatHandler.allLocks(),
+            worldCoord.getWorldName(),
+            worldCoord.getX(), worldCoord.getZ(),
+            TownySettings.getTownBlockSize(),
+            keep == null ? null : keep::equals);
+        if (!locks.isEmpty()) {
+            LockCleaner.clear(locks);
         }
     }
 
@@ -252,15 +214,19 @@ public final class TownyIntegration extends PluginIntegration implements Listene
             return;
         }
 
-        if (shouldRestrictAccessToResidents()) {
+        if (town.isRuined() && options().bypassProtectionsInRuinedTowns()) {
+            // Nobody is left to look after the locks of a ruined town.
+            event.setBypassProtections(true);
+            return;
+        }
+
+        if (options().restrictAccessToResidents()) {
             Resident resident = TownyAPI.getInstance().getResident(
                 event.getPlayer().getUniqueId());
             // Only restrict the block if they're not a resident of this town.
             if (resident == null || !town.hasResident(resident)) {
                 event.setCancelled(true);
             }
-        } else if (shouldBypassProtectionsInRuinedTowns() && town.isRuined()) {
-            event.setCancelled(false);
         }
     }
 
@@ -276,6 +242,33 @@ public final class TownyIntegration extends PluginIntegration implements Listene
             return; // Allow editing blocks that are in the wilderness.
         }
 
+        Town town = TownyAPI.getInstance().getTown(block.getLocation());
+        if (town == null) {
+            return;
+        }
+
+        if (town.isRuined()) {
+            // Nobody looks after a ruined town, anybody may clean up.
+            if (options().bypassProtectionsInRuinedTowns()) {
+                event.addPermissions(BlockAccessMenuEvent.MenuPermission.LOCK,
+                    BlockAccessMenuEvent.MenuPermission.FORCE_UNLOCK);
+            } else {
+                event.setCancelled(true);
+            }
+            return;
+        }
+
+        // The mayor and the assistants take locks off town-owned plots (not personal plots).
+        final TownBlock townBlock = TownyAPI.getInstance().getTownBlock(block.getLocation());
+        if (options().townAuthorityCanUnlockTownPlots()
+            && townBlock != null && !townBlock.hasResident()
+            && isTownAuthority(town, event.getPlayer())) {
+            event.addPermissions(BlockAccessMenuEvent.MenuPermission.LOCK,
+                BlockAccessMenuEvent.MenuPermission.INFO,
+                BlockAccessMenuEvent.MenuPermission.FORCE_UNLOCK);
+            return;
+        }
+
         if (!PlayerCacheUtil.getCachePermission(
             event.getPlayer(),
             block.getLocation(),
@@ -287,18 +280,9 @@ public final class TownyIntegration extends PluginIntegration implements Listene
             return;
         }
 
-        Town town = TownyAPI.getInstance().getTown(block.getLocation());
-        if (town == null) {
-            return;
-        }
-
         if (residentEqualsPlayer(town.getMayor(), event.getPlayer())
-            && shouldAllowMayorToSeeBlockInfo()) {
+            && options().allowMayorToSeeBlockInfo()) {
             event.addPermission(BlockAccessMenuEvent.MenuPermission.INFO);
-        } else if (town.isRuined()) {
-            // Cancel the event if we don't want to bypass protections
-            // in ruined towns.
-            event.setCancelled(!shouldBypassProtectionsInRuinedTowns());
         }
     }
 
@@ -313,41 +297,87 @@ public final class TownyIntegration extends PluginIntegration implements Listene
             return;
         }
 
-        if (shouldRestrictAccessToResidents()) {
+        if (options().restrictAccessToResidents()) {
             Town town = TownyAPI.getInstance().getTown(block.getLocation());
             if (town != null) {
                 Resident resident =
                     TownyAPI.getInstance().getResident(event.getPlayer().getUniqueId());
-                if (resident == null || town.hasResident(resident)) {
+                // Only residents of the town lock blocks inside of it.
+                if (resident == null || !town.hasResident(resident)) {
                     event.setCancelled(true);
                 }
             }
         }
     }
 
+    /** {@code /plot clear}: the plot is wiped, so its locks go too. */
     @EventHandler
     public void onPlotClear(@NotNull final PlotClearEvent event) {
-        if (!shouldCleanupAfterUnclaim() || event.getTownBlock() == null) {
+        if (!options().cleanupAfterUnclaim() || event.getTownBlock() == null) {
             return;
         }
-        removeAllProtections(event.getTownBlock().getWorldCoord());
+        removeAllProtections(event.getTownBlock().getWorldCoord(), null);
     }
 
+    /** The town is ruined: every plot of it. The plots still belong to the town at this point. */
     @EventHandler
     public void onTownRuin(@NotNull final TownRuinedEvent event) {
-        if (!shouldCleanupAfterUnclaim()) {
+        if (!options().cleanupAfterUnclaim()) {
             return;
         }
         for (TownBlock townBlock : new ArrayList<>(event.getTown().getTownBlocks())) {
-            removeAllProtections(townBlock.getWorldCoord());
+            removeAllProtections(townBlock.getWorldCoord(), null);
         }
     }
 
+    /**
+     * A plot leaves a town: unclaimed by the mayor, overclaimed, or one by one while a town is
+     * deleted. Towny fires this for every plot of a deleted town.
+     */
     @EventHandler
     public void onTownUnclaim(@NotNull final TownUnclaimEvent event) {
-        if (!shouldCleanupAfterUnclaim()) {
+        if (!options().cleanupAfterUnclaim()) {
             return;
         }
-        removeAllProtections(event.getWorldCoord());
+        removeAllProtections(event.getWorldCoord(), null);
+    }
+
+    /**
+     * A plot is claimed, sold, handed back to the town or evicted: only the locks of the new
+     * owner survive. Nobody else can unlock them and the new owner would be shut out.
+     */
+    @EventHandler
+    public void onPlotOwnerChange(@NotNull final PlotChangeOwnerEvent event) {
+        if (!options().cleanupOnPlotOwnerChange() || event.getTownBlock() == null) {
+            return;
+        }
+        final Resident newOwner = event.getNewResident();
+        removeAllProtections(event.getTownBlock().getWorldCoord(), newOwner == null ? null : newOwner.getUUID());
+    }
+
+    /**
+     * A resident leaves a town or is kicked: the locks they hold inside it go, so their chests
+     * do not sit in the middle of the town for good.
+     */
+    @EventHandler
+    public void onResidentLeave(@NotNull final TownRemoveResidentEvent event) {
+        if (!options().cleanupOnResidentLeave()) {
+            return;
+        }
+        final Town town = event.getTown();
+        final UUID resident = event.getResident().getUUID();
+        // Decided now, while the plots still belong to the town (a deleted town drops them next).
+        final List<LockEntry> locks = CleanupPlanner.ownedInside(
+            StatHandler.allLocks(), resident, entry -> insideTown(town, entry));
+        if (!locks.isEmpty()) {
+            LockCleaner.clear(locks);
+        }
+    }
+
+    private boolean insideTown(@NotNull final Town town, @NotNull final LockEntry entry) {
+        final var world = org.bukkit.Bukkit.getWorld(entry.world());
+        if (world == null) return false;
+        final TownBlock townBlock = TownyAPI.getInstance().getTownBlock(new Location(world, entry.x(), entry.y(), entry.z()));
+        return townBlock != null && town.equals(townBlock.getTownOrNull());
     }
 }

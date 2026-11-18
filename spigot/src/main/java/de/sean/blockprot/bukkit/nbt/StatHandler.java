@@ -18,13 +18,13 @@
 
 package de.sean.blockprot.bukkit.nbt;
 
-import com.tcoded.folialib.wrapper.task.WrappedTask;
 import de.sean.blockprot.bukkit.BlockProt;
 import de.sean.blockprot.bukkit.nbt.stats.BlockCountStatistic;
 import de.sean.blockprot.bukkit.nbt.stats.BukkitStatistic;
 import de.sean.blockprot.bukkit.nbt.stats.PlayerBlocksStatistic;
 import de.sean.blockprot.bukkit.tasks.StatisticFileSaveTask;
 import de.sean.blockprot.bukkit.util.BlockUtil;
+import de.sean.blockprot.cleanup.LockEntry;
 import de.sean.blockprot.nbt.stats.StatisticType;
 import de.tr7zw.changeme.nbtapi.NBTCompound;
 import de.tr7zw.changeme.nbtapi.NBTFile;
@@ -35,6 +35,7 @@ import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,8 +43,11 @@ import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
-import java.util.stream.Stream;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * StatHandler for statistic related NBT data. Keeps track
@@ -58,7 +62,13 @@ public final class StatHandler extends NBTHandler<NBTCompound> {
     static final String PLAYER_SUB_KEY = "player_stats";
     static final String SERVER_SUB_KEY = "server_stats";
 
-    private static @Nullable WrappedTask fileSaveTask;
+    /**
+     * Every change and every read of the statistics goes through this lock. Blocks are locked and
+     * broken on many region threads at once, and the save task runs on yet another one.
+     */
+    private static final Object LOCK = new Object();
+
+    private static @Nullable ScheduledTask fileSaveTask;
 
     private static @Nullable File backupFile;
 
@@ -78,6 +88,12 @@ public final class StatHandler extends NBTHandler<NBTCompound> {
     }
 
     public static void enable() {
+        synchronized (LOCK) {
+            enableLocked();
+        }
+    }
+
+    private static void enableLocked() {
         if (nbtFile != null) return;
 
         try {
@@ -118,17 +134,22 @@ public final class StatHandler extends NBTHandler<NBTCompound> {
                 }
             }
 
-            fileSaveTask = BlockProt.getInstance().getFoliaLib().getScheduler().runTimerAsync(
-                new StatisticFileSaveTask(),
-                1L,
-                5 * 60 * 20 // 5 minutes * 60 seconds * 20 ticks
-            );
+            fileSaveTask = Bukkit.getAsyncScheduler().runAtFixedRate(
+                BlockProt.getInstance(),
+                task -> new StatisticFileSaveTask().run(),
+                5, 5, TimeUnit.MINUTES);
         } catch (Throwable e) {
             BlockProt.getInstance().getLogger().warning("Failed to open BlockProt statistic file.");
         }
     }
 
     public static void saveFile() throws IOException {
+        synchronized (LOCK) {
+            saveFileLocked();
+        }
+    }
+
+    private static void saveFileLocked() throws IOException {
         /* We will always first save to a temporary file and then
            swap it with the actual file. This ensures that the write
            process on the actual file does not get interrupted, thus
@@ -171,6 +192,7 @@ public final class StatHandler extends NBTHandler<NBTCompound> {
     public static void disable() {
         if (fileSaveTask != null && !fileSaveTask.isCancelled())
             fileSaveTask.cancel();
+        fileSaveTask = null;
 
         try {
             StatHandler.saveFile();
@@ -184,12 +206,24 @@ public final class StatHandler extends NBTHandler<NBTCompound> {
      * global block count.
      */
     public static void addBlock(@NotNull final Player player, @NotNull final Location block) {
-        BlockCountStatistic countStatistic = new BlockCountStatistic();
-        PlayerBlocksStatistic containersStatistic = new PlayerBlocksStatistic();
-        StatHandler.getStatistic(countStatistic);
-        StatHandler.getStatistic(containersStatistic, player);
-        countStatistic.increment();
-        containersStatistic.add(block);
+        addBlock(player.getUniqueId(), block);
+    }
+
+    /**
+     * Same as {@link #addBlock(Player, Location)}, for a player that may be offline.
+     */
+    public static void addBlock(@NotNull final UUID player, @NotNull final Location block) {
+        synchronized (LOCK) {
+            if (nbtFile == null) return;
+            BlockCountStatistic countStatistic = new BlockCountStatistic();
+            PlayerBlocksStatistic containersStatistic = new PlayerBlocksStatistic();
+            StatHandler.getStatisticLocked(countStatistic, null);
+            StatHandler.getStatisticLocked(containersStatistic, player.toString());
+            // The same block is never listed twice (a double chest is re-listed when one half goes).
+            if (containersStatistic.get().stream().anyMatch(e -> e.get().equals(block))) return;
+            countStatistic.increment();
+            containersStatistic.add(block);
+        }
     }
 
     /**
@@ -198,12 +232,24 @@ public final class StatHandler extends NBTHandler<NBTCompound> {
      */
     @Deprecated
     public static void removeContainer(@NotNull final Player player, @NotNull final Location block) {
-        BlockCountStatistic countStatistic = new BlockCountStatistic();
-        PlayerBlocksStatistic containersStatistic = new PlayerBlocksStatistic();
-        StatHandler.getStatistic(countStatistic);
-        StatHandler.getStatistic(containersStatistic, player);
-        countStatistic.decrement();
-        containersStatistic.remove(block);
+        removeContainer(player.getUniqueId(), block);
+    }
+
+    /**
+     * Same as {@link #removeContainer(Player, Location)}, for a player that may be offline.
+     */
+    public static void removeContainer(@NotNull final UUID player, @NotNull final Location block) {
+        synchronized (LOCK) {
+            if (nbtFile == null) return;
+            BlockCountStatistic countStatistic = new BlockCountStatistic();
+            PlayerBlocksStatistic containersStatistic = new PlayerBlocksStatistic();
+            StatHandler.getStatisticLocked(countStatistic, null);
+            StatHandler.getStatisticLocked(containersStatistic, player.toString());
+            if (containersStatistic.get().stream().anyMatch(e -> e.get().equals(block))) {
+                countStatistic.decrement();
+                containersStatistic.remove(block);
+            }
+        }
     }
 
     /**
@@ -212,19 +258,73 @@ public final class StatHandler extends NBTHandler<NBTCompound> {
      * @since 1.0.3
      */
     public static void removeContainer(@NotNull final Player player, @NotNull final Block block) {
+        removeContainer(player.getUniqueId(), block);
+    }
+
+    /**
+     * Same as {@link #removeContainer(Player, Block)}, for a player that may be offline.
+     */
+    public static void removeContainer(@NotNull final UUID player, @NotNull final Block block) {
         /* Remove the other half of the door from the statistics as well */
         if (BlockProt.getDefaultConfig().isLockableDoor(block.getType())) {
             final Block otherDoor = BlockUtil.getOtherDoorHalf(block.getState());
             if (otherDoor != null)
                 StatHandler.removeContainer(player, otherDoor.getLocation());
         }
+        StatHandler.removeContainer(player, block.getLocation());
+    }
 
-        BlockCountStatistic countStatistic = new BlockCountStatistic();
-        PlayerBlocksStatistic containersStatistic = new PlayerBlocksStatistic();
-        StatHandler.getStatistic(countStatistic);
-        StatHandler.getStatistic(containersStatistic, player);
-        countStatistic.decrement();
-        containersStatistic.remove(block.getLocation());
+    /**
+     * Drops one entry from a player's statistic by its coordinates, when the block is not available.
+     */
+    public static void removeContainer(@NotNull final UUID player, @NotNull final String world,
+                                       final int x, final int y, final int z) {
+        synchronized (LOCK) {
+            if (nbtFile == null) return;
+            final World bukkitWorld = Bukkit.getWorld(world);
+            PlayerBlocksStatistic containersStatistic = new PlayerBlocksStatistic();
+            StatHandler.getStatisticLocked(containersStatistic, player.toString());
+            final var matching = containersStatistic.get().stream()
+                .map(e -> e.get())
+                .filter(l -> l.getBlockX() == x && l.getBlockY() == y && l.getBlockZ() == z
+                    && (l.getWorld() == null ? bukkitWorld == null : l.getWorld().getName().equals(world)))
+                .toList();
+            if (matching.isEmpty()) return;
+            BlockCountStatistic countStatistic = new BlockCountStatistic();
+            StatHandler.getStatisticLocked(countStatistic, null);
+            for (final Location l : matching) {
+                countStatistic.decrement();
+                containersStatistic.remove(l);
+            }
+        }
+    }
+
+    /**
+     * Every locked block known to the statistics, with its owner.
+     * A copy, safe to use from any thread.
+     */
+    public static @NotNull List<LockEntry> allLocks() {
+        synchronized (LOCK) {
+            final List<LockEntry> result = new ArrayList<>();
+            if (nbtFile == null || !nbtFile.hasKey(PLAYER_SUB_KEY)) return result;
+            final NBTCompound list = nbtFile.getOrCreateCompound(PLAYER_SUB_KEY);
+            for (final String id : list.getKeys()) {
+                final UUID owner;
+                try {
+                    owner = UUID.fromString(id);
+                } catch (IllegalArgumentException e) {
+                    continue;
+                }
+                final PlayerBlocksStatistic stat = new PlayerBlocksStatistic();
+                new StatHandler(list.getCompound(id)).updateStatistic(stat);
+                for (final var entry : stat.get()) {
+                    final Location l = entry.get();
+                    if (l.getWorld() == null) continue;
+                    result.add(new LockEntry(owner, l.getWorld().getName(), l.getBlockX(), l.getBlockY(), l.getBlockZ()));
+                }
+            }
+            return result;
+        }
     }
 
     /**
@@ -238,13 +338,29 @@ public final class StatHandler extends NBTHandler<NBTCompound> {
         getStatistic(statistic, null);
     }
 
+    /**
+     * Fills {@code statistic} from the stored values. The statistic reads and writes the stored
+     * values directly, so callers that use it afterwards must hold {@link #lock()}.
+     */
     public static void getStatistic(@NotNull BukkitStatistic<?> statistic, @Nullable Player player) {
+        synchronized (LOCK) {
+            getStatisticLocked(statistic, player == null ? null : player.getUniqueId().toString());
+        }
+    }
+
+    /** The lock around every statistic access. */
+    public static @NotNull Object lock() {
+        return LOCK;
+    }
+
+    private static void getStatisticLocked(@NotNull BukkitStatistic<?> statistic, @Nullable String player) {
+        if (nbtFile == null) throw new RuntimeException("nbtFile was null.");
         switch (statistic.getType()) {
             case ALL:
             case PLAYER:
                 // Only get the statistic if player is not null.
                 if (player != null) {
-                    final Optional<StatHandler> stats = getStatsForPlayer(player.getUniqueId().toString());
+                    final Optional<StatHandler> stats = getStatsForPlayer(player);
                     stats.ifPresent(handler -> handler.updateStatistic(statistic));
                 }
 
@@ -257,27 +373,14 @@ public final class StatHandler extends NBTHandler<NBTCompound> {
         }
     }
 
-    private static @NotNull Stream<StatHandler> getPlayerStats() {
-        if (nbtFile == null) throw new RuntimeException("nbtFile was null.");
-        if (!nbtFile.hasKey(PLAYER_SUB_KEY)) return Stream.empty();
-
-        final NBTCompound list = nbtFile.getOrCreateCompound(PLAYER_SUB_KEY);
-        return list
-            .getKeys()
-            .stream()
-            .map((comp) -> new StatHandler(list.getCompound(comp)));
-    }
-
     private static @NotNull Optional<StatHandler> getStatsForPlayer(@NotNull final String id) {
-        Optional<StatHandler> ret = getPlayerStats()
-            .filter((p) -> p.getName().equals(id))
-            .findFirst();
-
-        // Add the stats NBT to be sure that we always return a present optional value.
-        if (ret.isEmpty()) {
-            return Optional.of(StatHandler.addStatsForPlayer(id));
+        if (nbtFile == null) throw new RuntimeException("nbtFile was null.");
+        final NBTCompound list = nbtFile.getOrCreateCompound(PLAYER_SUB_KEY);
+        if (list.hasTag(id) && list.getType(id) == NBTType.NBTTagCompound) {
+            return Optional.of(new StatHandler(list.getCompound(id)));
         }
-        return ret;
+        // Add the stats NBT to be sure that we always return a present optional value.
+        return Optional.of(StatHandler.addStatsForPlayer(id));
     }
 
     private static @NotNull StatHandler addStatsForPlayer(@NotNull final String id) {

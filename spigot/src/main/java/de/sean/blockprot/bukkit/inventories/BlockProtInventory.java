@@ -456,6 +456,14 @@ public abstract class BlockProtInventory implements InventoryHolder {
     }
 
     /**
+     * The profile used for a player's head. The name comes from what this server knows about the player,
+     * so players of an offline-mode or Bedrock-linked server resolve as well.
+     */
+    protected static PlayerProfile profileFor(@NotNull final UUID uuid) {
+        return Bukkit.createProfile(uuid, Bukkit.getOfflinePlayer(uuid).getName());
+    }
+
+    /**
      * Closes the player's current inventory and then opens the new
      * inventory. If inventory is null, we clear the inventory state.
      *
@@ -465,11 +473,19 @@ public abstract class BlockProtInventory implements InventoryHolder {
      * @since 0.4.2
      */
     protected void closeAndOpen(@NotNull final HumanEntity player, @Nullable final Inventory inventory) {
-        if (inventory != null) {
-            player.openInventory(inventory);
+        // Windows are changed on the next tick, never inside the click that asked for it.
+        final Runnable change = () -> {
+            if (inventory != null) {
+                player.openInventory(inventory);
+            } else {
+                player.closeInventory();
+                InventoryState.remove(player.getUniqueId());
+            }
+        };
+        if (player instanceof Player online) {
+            online.getScheduler().run(BlockProt.getInstance(), task -> change.run(), null);
         } else {
-            player.closeInventory();
-            InventoryState.remove(player.getUniqueId());
+            change.run();
         }
     }
 

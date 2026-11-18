@@ -93,23 +93,9 @@ public class FriendSearchHistoryInventory extends BlockProtInventory {
 
         setBackButton();
 
-        BlockProt.getInstance().getFoliaLib().getScheduler().runAsync(
-            task -> {
-                try {
-                    final var profiles = BlockProt.getProfileService().findAllByUuid(state.friendResultCache);
-
-                    int i = 0;
-                    while (i < Math.min(profiles.size(), maxSkulls)) {
-                        final var profile = profiles.get(i);
-
-                        setPlayerSkull(i, Bukkit.getServer().createPlayerProfile(profile.getUniqueId(), profile.getName()));
-                        i++;
-                    }
-                } catch (Exception e) {
-                    BlockProt.getInstance().getLogger().warning("Failed to update PlayerProfile: " + e.getMessage());
-                }
-            }
-        );
+        for (int i = 0; i < Math.min(state.friendResultCache.size(), maxSkulls); i++) {
+            setPlayerSkull(i, profileFor(state.friendResultCache.get(i)));
+        }
 
         return this.inventory;
     }

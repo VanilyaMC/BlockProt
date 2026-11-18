@@ -1,11 +1,11 @@
 name: BlockProt
 version: ${version}
 main: de.sean.blockprot.bukkit.BlockProt
-api-version: 1.14
-authors: [ spnda ]
-description: A simple block protection plugin
+api-version: "26.1"
+authors: [ spnda, MrMirhan ]
+description: Block locks for chests, furnaces, doors and more, tied to Towny land
 prefix: BlockProt
-website: https://www.github.com/spnda/BlockProt
+website: https://github.com/VanilyaMC/BlockProt
 folia-supported: true
 permissions:
   blockprot.lock:
@@ -26,16 +26,16 @@ permissions:
   blockprot.locklimit.<number>:
     default: false
     description: Sets a per-player block lock limit. e.g. blockprot.locklimit.50
-  blockprot.debug:
-    default: false
-    description: Allows a player to execute debug commands. This is usually only used by the developer but can help assist in fixing issues.
 commands:
   blockprot:
     description: The main blockprot command
-    usage: "§c/blockprot [update|settings|stats|reload|about]" # Red error message
+    usage: "/blockprot [settings|stats|reload|integrations]"
     aliases: ["bp"]
+  kilit:
+    description: Lock menu of the block you look at
+    usage: "/kilit [arkadas <isim>|ayar]"
+    aliases: ["kilitle"]
 softdepend:
   - Towny
-  - PlaceholderAPI
-  - WorldGuard
-  - Lands
+  - ChestShop
+  - AtlasSpawner

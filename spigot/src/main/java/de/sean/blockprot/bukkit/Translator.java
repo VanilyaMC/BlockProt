@@ -18,14 +18,14 @@
 
 package de.sean.blockprot.bukkit;
 
-import com.google.common.collect.Sets;
 import de.sean.blockprot.nbt.LockReturnValue;
-import de.sean.blockprot.util.BlockProtUtil;
+import org.bukkit.Material;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -35,10 +35,10 @@ import java.util.Locale;
  */
 public final class Translator {
     /**
-     * The list of all included translation files. This is updated at compile
-     * time from our gradle buildscript.
+     * The list of all included translation files.
      */
-    public static final HashSet<String> DEFAULT_TRANSLATION_FILES = Sets.newHashSet(BlockProtUtil.parseStringList("$TRANSLATION_FILES"));
+    public static final HashSet<String> DEFAULT_TRANSLATION_FILES = new HashSet<>(List.of(
+        "translations_en.yml", "translations_tr.yml"));
 
     /**
      * The default locale we use for default translation
@@ -70,6 +70,15 @@ public final class Translator {
     static String DEFAULT_FALLBACK = "";
 
     /**
+     * Material names, the wanted language over the default one.
+     */
+    @NotNull
+    private static YamlConfiguration materialNames = new YamlConfiguration();
+
+    @NotNull
+    private static YamlConfiguration defaultMaterialNames = new YamlConfiguration();
+
+    /**
      * @since 0.2.3
      */
     private Translator() {
@@ -93,6 +102,9 @@ public final class Translator {
         Translator.locale = (locale == null)
             ? Locale.ROOT
             : new Locale(locale);
+
+        materialNames = config;
+        defaultMaterialNames = defaultConfig;
 
         long missingValues = 0, totallyMissingValues = 0;
         TranslationKey[] translations = TranslationKey.values();
@@ -148,6 +160,19 @@ public final class Translator {
         return value == null
             ? DEFAULT_FALLBACK
             : value.getValue();
+    }
+
+    /**
+     * The name of a block type as players should read it. Falls back to the
+     * English name, then to a readable form of the type name.
+     */
+    @NotNull
+    public static String material(@NotNull final Material material) {
+        final String key = "materials." + material.name().toLowerCase(Locale.ENGLISH);
+        String name = materialNames.getString(key);
+        if (name == null) name = defaultMaterialNames.getString(key);
+        if (name == null) name = de.sean.blockprot.bukkit.util.BlockUtil.getHumanReadableBlockName(material);
+        return name;
     }
 
     /**

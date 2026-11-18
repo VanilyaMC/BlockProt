@@ -19,12 +19,13 @@
 package de.sean.blockprot.bukkit.inventories;
 
 import de.sean.blockprot.bukkit.BlockProt;
+import de.sean.blockprot.bukkit.Messages;
 import de.sean.blockprot.bukkit.TranslationKey;
 import de.sean.blockprot.bukkit.Translator;
 import de.sean.blockprot.bukkit.integrations.PluginIntegration;
 import de.sean.blockprot.bukkit.nbt.PlayerSettingsHandler;
 import de.sean.blockprot.nbt.FriendModifyAction;
-import com.tcoded.folialib.wrapper.task.WrappedTask;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -35,7 +36,6 @@ import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.SkullMeta;
-import org.enginehub.squirrelid.Profile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -45,12 +45,12 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class FriendSearchResultInventory extends BlockProtInventory {
-    final ConcurrentLinkedQueue<Profile> resultQueue = new ConcurrentLinkedQueue<>();
+    final ConcurrentLinkedQueue<OfflinePlayer> resultQueue = new ConcurrentLinkedQueue<>();
 
     private final int maxResults = getSize() - 1;
 
     CompletableFuture<Void> loadTask = null;
-    WrappedTask updateTask = null;
+    ScheduledTask updateTask = null;
 
     @Override
     int getSize() {
@@ -153,13 +153,49 @@ public class FriendSearchResultInventory extends BlockProtInventory {
         else return (longerLength - levenshteinDistance(longer, shorter)) / (double) longerLength;
     }
 
+    /**
+     * Adds the player whose name is exactly {@code name} (case does not matter) as a friend.
+     * Only players this server knows are found, online or not.
+     *
+     * @return True if there was such a player, so the search is over.
+     */
+    public boolean addExactMatch(@NotNull Player player, @NotNull String name) {
+        final InventoryState state = InventoryState.get(player.getUniqueId());
+        if (state == null) return false;
+
+        java.util.UUID found = null;
+        final Player online = Bukkit.getPlayerExact(name);
+        if (online != null) {
+            found = online.getUniqueId();
+        } else {
+            final OfflinePlayer cached = Bukkit.getOfflinePlayerIfCached(name);
+            if (cached != null && cached.getName() != null && cached.getName().equalsIgnoreCase(name)) {
+                found = cached.getUniqueId();
+            }
+        }
+        if (found == null || found.equals(player.getUniqueId())) return false;
+        if (state.friendSearchState == InventoryState.FriendSearchState.FRIEND_SEARCH
+            && state.getBlock() != null
+            && !PluginIntegration.filterFriendByUuidForAll(found, player, state.getBlock())) {
+            return false;
+        }
+
+        modifyFriendsForAction(player, found, FriendModifyAction.ADD_FRIEND);
+        new PlayerSettingsHandler(player).addPlayerToSearchHistory(found);
+        Messages.actionBar(player, Translator.get(TranslationKey.MESSAGES__FRIEND_ADDED));
+        final Inventory menu = new FriendManageInventory().fill(player);
+        if (menu != null) player.openInventory(menu);
+        return true;
+    }
+
     @Nullable
     public Inventory fill(@NotNull Player player, String searchQuery) {
         InventoryState state = InventoryState.get(player.getUniqueId());
         if (state == null) return inventory;
 
-        updateTask = BlockProt.getInstance().getFoliaLib().getScheduler().runAtEntityTimer(player, new ResultUpdateTask(state), 1, 1);
-        loadTask = BlockProt.getInstance().getFoliaLib().getScheduler().runAsync(task -> new AsyncResultLoadTask(state, player, searchQuery).run());
+        final ResultUpdateTask updater = new ResultUpdateTask(state);
+        updateTask = player.getScheduler().runAtFixedRate(BlockProt.getInstance(), task -> updater.run(), null, 1, 1);
+        loadTask = CompletableFuture.runAsync(() -> new AsyncResultLoadTask(state, player, searchQuery).run());
 
         for (int i = 0; i < maxResults; i++) {
             this.setItemStack(i, Material.SKELETON_SKULL, "Loading...");
@@ -197,7 +233,7 @@ public class FriendSearchResultInventory extends BlockProtInventory {
                 return;
             }
 
-            Profile profile;
+            OfflinePlayer profile;
             while ((profile = resultQueue.poll()) != null && playersIndex < maxResults) {
                 // Clear all the skeleton skulls named "Loading"
                 if (playersIndex == 0) {
@@ -208,7 +244,7 @@ public class FriendSearchResultInventory extends BlockProtInventory {
 
                 state.friendResultCache.add(profile.getUniqueId());
 
-                setPlayerSkull(playersIndex, Bukkit.getServer().createPlayerProfile(profile.getUniqueId(), profile.getName()));
+                setPlayerSkull(playersIndex, profileFor(profile.getUniqueId()));
                 ++playersIndex;
             }
 
@@ -243,8 +279,9 @@ public class FriendSearchResultInventory extends BlockProtInventory {
                 .filter(uuid -> uuid.version() == 3 || uuid.version() == 4 || uuid.version() == 0);
 
             try {
-                var filterStream = BlockProt.getProfileService().findAllByUuid(stream.toList()).stream()
-                    .filter(Objects::nonNull)
+                final var offlineStream = stream.toList();
+                var filterStream = offlineStream.stream()
+                    .map(uuid -> Bukkit.getOfflinePlayer(uuid))
                     .filter(p -> p.getName() != null && !p.getUniqueId().equals(player.getUniqueId()))
                     .map(p -> new ImmutablePair<>(p, compareStrings(p.getName(), searchQuery)))
                     .filter(p -> p.right >= minimumSimilarity)

@@ -18,9 +18,10 @@
 
 package de.sean.blockprot.bukkit.listeners;
 
-import com.google.common.collect.Iterables;
 import de.sean.blockprot.bukkit.BlockProt;
+import de.sean.blockprot.bukkit.Messages;
 import de.sean.blockprot.bukkit.Permissions;
+import de.sean.blockprot.bukkit.TranslationKey;
 import de.sean.blockprot.bukkit.Translator;
 import de.sean.blockprot.bukkit.events.BlockLockOnPlaceEvent;
 import de.sean.blockprot.bukkit.integrations.PluginIntegration;
@@ -29,26 +30,17 @@ import de.sean.blockprot.bukkit.nbt.PlayerSettingsHandler;
 import de.sean.blockprot.bukkit.nbt.StatHandler;
 import de.sean.blockprot.bukkit.util.BlockUtil;
 import de.sean.blockprot.nbt.LockReturnValue;
-import de.tr7zw.changeme.nbtapi.NBT;
-import de.tr7zw.changeme.nbtapi.utils.MinecraftVersion;
-import net.md_5.bungee.api.ChatMessageType;
-import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
-import org.bukkit.GameMode;
 import org.bukkit.Material;
-import org.bukkit.NamespacedKey;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.*;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.persistence.PersistentDataType;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Collection;
-import java.util.Objects;
 import java.util.UUID;
 
 public class BlockEventListener implements Listener {
@@ -71,75 +63,57 @@ public class BlockEventListener implements Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onBlockBreak(BlockBreakEvent event) {
+    /**
+     * Nobody but the owner breaks a locked block. This runs early (and only cancels) so that plugins
+     * which look at the event afterwards, for example the spawner plugin, already see the veto.
+     */
+    @EventHandler(priority = EventPriority.LOW)
+    public void onBlockBreakCheck(BlockBreakEvent event) {
         if (BlockProt.getDefaultConfig().isWorldExcluded(event.getBlock().getWorld())) return;
         if (!BlockProt.getDefaultConfig().isLockable(event.getBlock().getType())) return; // We only want to check for lockable blocks.
 
+        final Player player = event.getPlayer();
         BlockNBTHandler handler = new BlockNBTHandler(event.getBlock());
-        if (!handler.isOwner(event.getPlayer().getUniqueId().toString()) && handler.isProtected()) {
+        if (handler.isProtected()
+            && !handler.isOwner(player.getUniqueId())
+            && !player.hasPermission(Permissions.BYPASS.key())
+            && !PluginIntegration.ownerRightsForAll(player, event.getBlock())) {
             // Prevent unauthorized players from breaking locked blocks.
             event.setCancelled(true);
-        }
-
-        // If access is not cancelled and the player is allowed to break the block.
-        if (!event.isCancelled()) {
-            StatHandler.removeContainer(event.getPlayer(), event.getBlock());
-
-            // For blocks, we want to clear the NBT data, as that lives
-            // independently of the actual block state.
-            handler.clear();
+            Messages.actionBar(player, Translator.get(TranslationKey.MESSAGES__NO_PERMISSION));
         }
     }
 
     /**
-     * We need to catch shulker box breaks separately with the lowest priority possible,
-     * as otherwise other plugins might have cancelled it and a player could dupe the box.
+     * The block is really gone (nobody cancelled the event): its lock goes too. Doors, gates and
+     * the like keep their data in the chunk, which would otherwise stay behind.
      */
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onShulkerBoxBreak(BlockBreakEvent event) {
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockBreakDone(BlockBreakEvent event) {
         if (BlockProt.getDefaultConfig().isWorldExcluded(event.getBlock().getWorld())) return;
-        if (!BlockProt.getDefaultConfig().isLockableShulkerBox(event.getBlock().getType())) return;
+        if (!BlockProt.getDefaultConfig().isLockable(event.getBlock().getType())) return;
 
         BlockNBTHandler handler = new BlockNBTHandler(event.getBlock());
-        if (handler.isOwner(event.getPlayer().getUniqueId().toString()) && (!event.isCancelled() && event.isDropItems() && event.getPlayer().getGameMode() != GameMode.CREATIVE)) {
-            // The player can break the block. We will now check if it's a shulker box,
-            // so we can add NBT to the shulker box that it gets locked upon placing again.
-            event.setDropItems(false); // Prevent the event from dropping items itself
-            Collection<ItemStack> itemsToDrop = event.getBlock().getDrops();
-            if (itemsToDrop.isEmpty()) return;
-
-            var item = Iterables.getFirst(itemsToDrop, null); // Shulker blocks should only have a single drop anyway
-            if (item == null) return;
-
-            if (MinecraftVersion.isAtLeastVersion(MinecraftVersion.MC1_20_R4)) {
-                final var meta = item.getItemMeta();
-                final var pdc = meta.getPersistentDataContainer();
-                pdc.set(new NamespacedKey(BlockProt.getInstance(), "shulker_data"), PersistentDataType.STRING, "Hi!");
-                item.setItemMeta(meta);
-
-                // Since Minecraft 1.20.6 item stacks use components instead of NBT.
-                // The block_entity_data tag works like the BlockEntityTag used to, but requires an "id" field for the type of block.
-                final var nbt = NBT.itemStackToNBT(item);
-                final var entityData = nbt.getOrCreateCompound("components").getOrCreateCompound("minecraft:block_entity_data");
-                if (MinecraftVersion.isAtLeastVersion(MinecraftVersion.MC1_20_R4)) {
-                    // See https://github.com/spnda/BlockProt/issues/339#issuecomment-3690954598
-                    entityData.setString("id", "minecraft:shulker_box");
-                } else {
-                    entityData.setString("id", item.getType().getKey().toString());
+        if (handler.isProtected() || !handler.getOwner().isEmpty()) {
+            // Not applyToOtherContainer: the other half of a double chest stays locked.
+            final String owner = handler.getOwner();
+            if (!owner.isEmpty()) {
+                try {
+                    final UUID ownerId = UUID.fromString(owner);
+                    StatHandler.removeContainer(ownerId, event.getBlock());
+                    // The other half of a double chest stays locked, so it takes this block's place in the index.
+                    final Material type = event.getBlock().getType();
+                    if (type == Material.CHEST || type == Material.TRAPPED_CHEST) {
+                        final BlockState other = BlockUtil.getDoubleChest(event.getBlock());
+                        if (other != null) {
+                            StatHandler.addBlock(ownerId, other.getLocation());
+                        }
+                    }
+                } catch (IllegalArgumentException ignored) {
+                    // Not a player id.
                 }
-                entityData.getOrCreateCompound("PublicBukkitValues").mergeCompound(handler.getNbtCopy());
-                item = Objects.requireNonNull(NBT.itemStackFromNBT(nbt));
-            } else {
-                NBT.modify(item, readWriteItemNBT -> {
-                    readWriteItemNBT.getOrCreateCompound("BlockEntityTag").getOrCreateCompound("PublicBukkitValues").mergeCompound(handler.getNbtCopy());
-                });
             }
-
-            event.getPlayer().getWorld().dropItemNaturally(event.getBlock().getLocation(), item);
-
-            event.getBlock().setType(Material.AIR);
-            event.setCancelled(true); // So that other plugins don't fiddle with this.
+            handler.clear();
         }
     }
 
@@ -154,7 +128,6 @@ public class BlockEventListener implements Listener {
         BlockNBTHandler handler = new BlockNBTHandler(block);
 
         // We only try to lock the block if it isn't locked already.
-        // Shulker boxes might already be locked, from previous placing.
         if (handler.isNotProtected()) {
             PlayerSettingsHandler settingsHandler = new PlayerSettingsHandler(event.getPlayer());
 
@@ -168,9 +141,7 @@ public class BlockEventListener implements Listener {
                     if (!lock.success) {
                         event.setCancelled(true);
                         if (lock.reason != null) {
-                            event.getPlayer().spigot().sendMessage(
-                                    ChatMessageType.ACTION_BAR,
-                                    TextComponent.fromLegacyText(Translator.get(lock.reason)));
+                            Messages.actionBar(event.getPlayer(), Translator.get(lock.reason));
                         }
                         return;
                     }
@@ -185,8 +156,10 @@ public class BlockEventListener implements Listener {
                 }
             }
 
-            BlockProt.getInstance().getFoliaLib().getScheduler().runAtEntityLater(
-                event.getPlayer(), task -> {
+            // One tick later the chest knows whether it became half of a double chest. The block
+            // is touched on the thread of the region that owns it.
+            Bukkit.getRegionScheduler().runDelayed(
+                blockProt, block.getLocation(), task -> {
                     if (block.getType() == Material.CHEST || block.getType() == Material.TRAPPED_CHEST) {
                         // We cannot use BlockNBTHandler#applyToOtherContainer, because we want the
                         // data to be copied to this new chest, instead of the old chest being effectively
@@ -197,16 +170,17 @@ public class BlockEventListener implements Listener {
                             if (doubleChestHandler.isNotProtected() || doubleChestHandler.isOwner(playerUuid)) {
                                 handler.mergeHandler(doubleChestHandler);
                             } else {
-                                // We can't cancel the event 1 tick later, its already executed. We'll just need to destroy the block and drop it.
-                                event.getPlayer().getWorld().getBlockAt(block.getLocation()).breakNaturally();
+                                // The new half would open somebody else's locked chest. We can't cancel the
+                                // event one tick later, so the new half is taken away and returned.
+                                block.breakNaturally();
+                                final Player placer = Bukkit.getPlayer(event.getPlayer().getUniqueId());
+                                if (placer != null) Messages.actionBar(placer, Translator.get(TranslationKey.MESSAGES__NO_PERMISSION));
                             }
-
-                            // Remove the container as we break it, but also remove it when successful to remove duplicates.
-                            StatHandler.removeContainer(event.getPlayer(), block);
                         }
-                    } else {
-                        handler.setName(BlockUtil.getHumanReadableBlockName(block.getType()));
-                        handler.applyToOtherContainer();
+                    } else if (BlockProt.getDefaultConfig().isLockable(block.getType())) {
+                        BlockNBTHandler later = new BlockNBTHandler(block);
+                        later.setName(Translator.material(block.getType()));
+                        later.applyToOtherContainer();
                     }
                 },
                 1

@@ -19,6 +19,7 @@
 package de.sean.blockprot.bukkit.listeners;
 
 import de.sean.blockprot.bukkit.BlockProt;
+import de.sean.blockprot.bukkit.Messages;
 import de.sean.blockprot.bukkit.Permissions;
 import de.sean.blockprot.bukkit.TranslationKey;
 import de.sean.blockprot.bukkit.Translator;
@@ -27,8 +28,6 @@ import de.sean.blockprot.bukkit.inventories.BlockProtInventory;
 import de.sean.blockprot.bukkit.inventories.InventoryState;
 import de.sean.blockprot.bukkit.nbt.BlockNBTHandler;
 import de.sean.blockprot.bukkit.nbt.FriendHandler;
-import net.md_5.bungee.api.ChatMessageType;
-import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.block.Block;
 import org.bukkit.block.Container;
@@ -40,9 +39,9 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryOpenEvent;
 import org.bukkit.event.player.PlayerTakeLecternBookEvent;
-import org.bukkit.inventory.BlockInventoryHolder;
 import org.bukkit.inventory.InventoryHolder;
 import org.jetbrains.annotations.NotNull;
 
@@ -71,41 +70,68 @@ public class InventoryEventListener implements Listener {
             }
         } else {
             // No state, let's check if they're in some block inventory.
-            try {
-                // Casting null does not trigger a ClassCastException.
-                if (event.getInventory().getHolder() == null) return;
-                BlockInventoryHolder blockHolder = (BlockInventoryHolder) event.getInventory().getHolder();
-                if (BlockProt.getDefaultConfig().isLockable(blockHolder.getBlock().getType())) {
-                    // Ok, we have a lockable block, check if they can write anything to this.
-                    // TODO: Implement a Cache for this lookup, it seems to be quite expensive.
-                    //       We should probably use a MultiMap, or implement our own Key that
-                    //       can use multiple key objects, a Block and Player in this case.
-                    BlockNBTHandler handler = new BlockNBTHandler(blockHolder.getBlock());
-                    String playerUuid = player.getUniqueId().toString();
+            final Block lockedBlock = lockableBlockOf(event.getInventory().getHolder());
+            if (lockedBlock != null && !BlockProt.getDefaultConfig().isWorldExcluded(lockedBlock.getWorld())) {
+                // Ok, we have a lockable block, check if they can write anything to this.
+                BlockNBTHandler handler = new BlockNBTHandler(lockedBlock);
+                String playerUuid = player.getUniqueId().toString();
 
-                    if (handler.isProtected() && !handler.isOwner(playerUuid)) {
-                        final var friend = handler.getFriend(playerUuid);
-                        if (friend.isPresent()) {
-                            if (!friend.get().canWrite()) {
-                                event.setCancelled(true);
-                            } else if (!friend.get().canRead()) {
-                                event.setCancelled(true);
-                                player.closeInventory();
-                            }
-                        } else {
-                            // The player is not a friend and not the owner; they shouldn't have
-                            // access anyway.
-                            player.closeInventory();
+                if (handler.isProtected() && !handler.isOwner(playerUuid)
+                    && !player.hasPermission(Permissions.BYPASS.key())) {
+                    final var friend = handler.getFriend(playerUuid);
+                    if (friend.isPresent()) {
+                        if (!friend.get().canWrite()) {
                             event.setCancelled(true);
+                        } else if (!friend.get().canRead()) {
+                            event.setCancelled(true);
+                            player.closeInventory();
                         }
+                    } else {
+                        // The player is not a friend and not the owner; they shouldn't have
+                        // access anyway.
+                        player.closeInventory();
+                        event.setCancelled(true);
                     }
                 }
-            } catch (ClassCastException e) {
-                // It's not a block, and it's therefore also not lockable.
-                // This is probably some other custom inventory from another
-                // plugin, or possibly some entity inventory, e.g. villagers.
             }
         }
+    }
+
+    /**
+     * A friend who may only read must not be able to drag items into the container either.
+     */
+    @EventHandler
+    public void onInventoryDrag(@NotNull InventoryDragEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)) return;
+        final InventoryState state = InventoryState.get(player.getUniqueId());
+        if (state != null && event.getInventory().getHolder() instanceof BlockProtInventory) {
+            event.setCancelled(true); // Never drag anything around in a menu.
+            return;
+        }
+        final Block lockedBlock = lockableBlockOf(event.getInventory().getHolder());
+        if (lockedBlock == null || BlockProt.getDefaultConfig().isWorldExcluded(lockedBlock.getWorld())) return;
+
+        BlockNBTHandler handler = new BlockNBTHandler(lockedBlock);
+        String playerUuid = player.getUniqueId().toString();
+        if (handler.isProtected() && !handler.isOwner(playerUuid)
+            && !player.hasPermission(Permissions.BYPASS.key())) {
+            final var friend = handler.getFriend(playerUuid);
+            if (friend.isEmpty() || !friend.get().canWrite() || !friend.get().canRead()) {
+                event.setCancelled(true);
+            }
+        }
+    }
+
+    /** The lockable block behind an inventory holder, single chests and double chests alike. */
+    private static Block lockableBlockOf(InventoryHolder holder) {
+        Block block = null;
+        if (holder instanceof Container container) {
+            block = container.getBlock();
+        } else if (holder instanceof DoubleChest doubleChest && doubleChest.getLeftSide() instanceof Container left) {
+            block = left.getBlock();
+        }
+        if (block == null || !BlockProt.getDefaultConfig().isLockable(block.getType())) return null;
+        return block;
     }
 
     @EventHandler
@@ -169,14 +195,9 @@ public class InventoryEventListener implements Listener {
             }
         } else if ((holder instanceof Container || holder instanceof DoubleChest)
             && event.getPlayer() instanceof Player player) {
-            Block block;
-            if (holder instanceof Container container) {
-                block = container.getBlock();
-            } else {
-                block = ((DoubleChest) holder).getLocation().getBlock();
-            }
+            final Block block = lockableBlockOf(holder);
 
-            if (BlockProt.getDefaultConfig().isLockable(block.getType())) {
+            if (block != null && !BlockProt.getDefaultConfig().isWorldExcluded(block.getWorld())) {
                 BlockAccessEvent accessEvent = new BlockAccessEvent(block, (Player) event.getPlayer());
                 Bukkit.getPluginManager().callEvent(accessEvent);
                 if (accessEvent.isCancelled()) {
@@ -195,10 +216,7 @@ public class InventoryEventListener implements Listener {
     }
 
     private void sendMessage(@NotNull HumanEntity player, @NotNull String component) {
-        if (!(player instanceof Player)) return;
-        ((Player) player).spigot().sendMessage(
-            ChatMessageType.ACTION_BAR,
-            TextComponent.fromLegacyText(component)
-        );
+        if (!(player instanceof Player online)) return;
+        Messages.actionBar(online, component);
     }
 }

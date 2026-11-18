@@ -129,9 +129,7 @@ public final class FriendDetailInventory extends BlockProtInventory {
 
         if (!uuid.equals(FriendSupportingHandler.publicUuid)) {
             try {
-                final var profile = BlockProt.getProfileService().findByUuid(uuid);
-                assert profile != null;
-                setPlayerSkull(0, Bukkit.getServer().createPlayerProfile(profile.getUniqueId(), profile.getName()));
+                setPlayerSkull(0, profileFor(uuid));
             } catch (Exception e) {
                 BlockProt.getInstance().getLogger().warning("Failed to find PlayerProfile: " + uuid);
             }

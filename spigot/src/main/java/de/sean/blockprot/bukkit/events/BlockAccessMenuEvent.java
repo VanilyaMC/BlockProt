@@ -144,6 +144,8 @@ public final class BlockAccessMenuEvent extends BlockEvent implements Cancellabl
         /* Allows a player to lock or unlock a block */
         LOCK,
         /* Allows a player to manage redstone settings and friends */
-        MANAGER
+        MANAGER,
+        /* Allows a player to remove somebody else's lock, for example a mayor on a town plot */
+        FORCE_UNLOCK
     }
 }

@@ -18,17 +18,12 @@
 
 package de.sean.blockprot.bukkit;
 
-import com.tcoded.folialib.FoliaLib;
 import de.sean.blockprot.bukkit.commands.BlockProtCommand;
 import de.sean.blockprot.bukkit.config.DefaultConfig;
 import de.sean.blockprot.bukkit.integrations.*;
 import de.sean.blockprot.bukkit.listeners.*;
-import de.sean.blockprot.bukkit.metrics.IntegrationBarChart;
 import de.sean.blockprot.bukkit.nbt.StatHandler;
-import de.sean.blockprot.bukkit.tasks.UpdateChecker;
 import de.tr7zw.changeme.nbtapi.utils.MinecraftVersion;
-import net.wesjd.anvilgui.version.VersionMatcher;
-import org.bstats.bukkit.Metrics;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.HumanEntity;
@@ -36,13 +31,11 @@ import org.bukkit.event.Listener;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.enginehub.squirrelid.cache.ProfileCache;
-import org.enginehub.squirrelid.cache.SQLiteCache;
-import org.enginehub.squirrelid.resolver.ProfileService;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -52,11 +45,6 @@ import java.util.Objects;
  * The main plugin instance of BlockProt.
  */
 public final class BlockProt extends JavaPlugin {
-    /**
-     * The bStats plugin ID.
-     */
-    public static final int pluginId = 9999;
-
     /**
      * The name of the default language file, which is the english
      * translation file.
@@ -70,15 +58,6 @@ public final class BlockProt extends JavaPlugin {
     private static DefaultConfig defaultConfig = null;
 
     private final ArrayList<PluginIntegration> integrations = new ArrayList<>();
-
-    @Nullable
-    private static SQLiteCache playerProfileCache = null;
-    @Nullable
-    private static ProfileService playerProfileService = null;
-
-    private Metrics metrics;
-
-    private FoliaLib foliaLib;
 
     /**
      * Get the current instance of the {@link BlockProt} plugin.
@@ -103,7 +82,7 @@ public final class BlockProt extends JavaPlugin {
      */
     @NotNull
     public static DefaultConfig getDefaultConfig() throws AssertionError {
-        assert defaultConfig != null : "default config should be null.";
+        assert defaultConfig != null : "default config should not be null.";
         return defaultConfig;
     }
 
@@ -117,33 +96,13 @@ public final class BlockProt extends JavaPlugin {
         return Collections.unmodifiableList(integrations);
     }
 
-    @NotNull
-    public static ProfileCache getProfileCache() {
-        assert playerProfileCache != null;
-        return playerProfileCache;
-    }
-
-    @NotNull
-    public static ProfileService getProfileService() {
-        assert playerProfileService != null;
-        return playerProfileService;
-    }
-
     @Override
     public void onLoad() {
         instance = this;
 
-        try {
-            playerProfileCache = new SQLiteCache(new File(Bukkit.getWorldContainer(), "blockprot_usercache.sqlite"));
-            playerProfileService = new CachedProfileService(playerProfileCache);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to open SQLite connection to usercache database", e);
-        }
-
-        try { registerIntegration(new WorldGuardIntegration());     } catch (NoClassDefFoundError ignored) {}
         try { registerIntegration(new TownyIntegration());          } catch (NoClassDefFoundError ignored) {}
-        try { registerIntegration(new PlaceholderAPIIntegration()); } catch (NoClassDefFoundError ignored) {}
-        try { registerIntegration(new LandsPluginIntegration());    } catch (NoClassDefFoundError ignored) {}
+        try { registerIntegration(new ChestShopIntegration());      } catch (NoClassDefFoundError ignored) {}
+        try { registerIntegration(new SpawnerIntegration());        } catch (NoClassDefFoundError ignored) {}
 
         for (PluginIntegration integration : integrations) {
             try {
@@ -154,39 +113,12 @@ public final class BlockProt extends JavaPlugin {
 
     @Override
     public void onEnable() {
-        foliaLib = new FoliaLib(this);
-
-        if (isRunningCraftBukkit()) {
-            final var message = "This plugin does not support running on CraftBukkit servers! Please use any Spigot server instead!";
-            getLogger().severe(message);
-            getServer().getPluginManager().registerEvents(new ErrorEventListener(message), this);
-            return;
-        }
-
-        /* Check for updates */
-        foliaLib.getScheduler().runAsync(task -> new UpdateChecker(this.getDescription()));
-
-        // We'll try and get the AnvilGUI API to select the version wrapper. Should it fail, we display an error that
-        // we do not support the current Minecraft version.
-        try {
-            new VersionMatcher().match();
-        } catch (IllegalStateException e) {
-            final var message = "This plugin does not support the current Minecraft version! Please check if there is a new update available.";
-            getLogger().severe(message);
-            getServer().getPluginManager().registerEvents(new ErrorEventListener(message), this);
-            return;
-        }
-
         MinecraftVersion.disableUpdateCheck();
 
         new BlockProtAPI(this); // Init the API.
         StatHandler.enable();
         this.saveDefaultConfig();
         this.reloadConfigAndTranslations();
-
-        /* bStats Metrics */
-        metrics = new Metrics(this, pluginId);
-        metrics.addCustomChart(new IntegrationBarChart());
 
         /* Register Listeners */
         final PluginManager pm = getServer().getPluginManager();
@@ -200,8 +132,13 @@ public final class BlockProt extends JavaPlugin {
         registerEvent(pm, new PistonEventListener());
         registerEvent(pm, new RedstoneEventListener());
 
-        Objects.requireNonNull(this.getCommand("blockprot"))
-            .setExecutor(new BlockProtCommand());
+        final var command = Objects.requireNonNull(this.getCommand("blockprot"));
+        final var executor = new BlockProtCommand();
+        command.setExecutor(executor);
+        command.setTabCompleter(executor);
+        final var shortcut = Objects.requireNonNull(this.getCommand("kilit"));
+        shortcut.setExecutor(executor);
+        shortcut.setTabCompleter(executor);
 
         /* Enable all integrations */
         for (PluginIntegration integration : integrations) {
@@ -218,17 +155,15 @@ public final class BlockProt extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        if (!isRunningCraftBukkit()) {
-            getLogger().info("Saving statistic file...");
-            StatHandler.disable();
-            getServer().getOnlinePlayers().forEach(HumanEntity::closeInventory);
-        }
+        getLogger().info("Saving statistic file...");
+        StatHandler.disable();
+        getServer().getOnlinePlayers().forEach(HumanEntity::closeInventory);
         super.onDisable();
     }
 
     /**
      * Reloads the config and the translation files (possibly changed through config).
-     * 
+     *
      * @since 1.0.0
      */
     public void reloadConfigAndTranslations() {
@@ -255,7 +190,8 @@ public final class BlockProt extends JavaPlugin {
             // The JAR has been modified or is corrupt and the translation files are missing.
             throw new RuntimeException("Failed to get default language file. Possibly corrupt plugin?");
         }
-        YamlConfiguration defaultLanguageConfig = YamlConfiguration.loadConfiguration(new BufferedReader(new InputStreamReader(defaultLanguageStream)));
+        YamlConfiguration defaultLanguageConfig = YamlConfiguration.loadConfiguration(
+            new BufferedReader(new InputStreamReader(defaultLanguageStream, StandardCharsets.UTF_8)));
 
         // Get the wanted language file and load its config.
         // Load the configurations and initialize the Translator.
@@ -315,18 +251,5 @@ public final class BlockProt extends JavaPlugin {
             }
         }
         return YamlConfiguration.loadConfiguration(file);
-    }
-
-    private boolean isRunningCraftBukkit() {
-        try {
-            Class<?> clazz = Class.forName("net.md_5.bungee.api.chat.BaseComponent");
-            return false;
-        } catch (ClassNotFoundException e) {
-            return true;
-        }
-    }
-
-    public FoliaLib getFoliaLib() {
-        return foliaLib;
     }
 }

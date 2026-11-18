@@ -19,7 +19,9 @@
 package de.sean.blockprot.bukkit.commands;
 
 import de.sean.blockprot.bukkit.BlockProt;
-import net.md_5.bungee.api.chat.TextComponent;
+import de.sean.blockprot.bukkit.Messages;
+import de.sean.blockprot.bukkit.TranslationKey;
+import de.sean.blockprot.bukkit.Translator;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.jetbrains.annotations.NotNull;
@@ -32,7 +34,7 @@ public class ReloadCommand implements CommandExecutor {
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
         if (canUseCommand(sender)) {
             BlockProt.getInstance().reloadConfigAndTranslations();
-            sender.spigot().sendMessage(new TextComponent("Finished reloading BlockProt!"));
+            Messages.chat(sender, Translator.get(TranslationKey.MESSAGES__RELOADED));
             return true;
         }
         return false;
