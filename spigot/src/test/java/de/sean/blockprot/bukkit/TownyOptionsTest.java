@@ -18,10 +18,10 @@ class TownyOptionsTest {
 
     @Test
     void anExplicitFalseStaysFalse() throws Exception {
-        var options = of("cleanup_plots_after_unclaim: false\nbypass_protection_in_ruined_towns: false\ncleanup_on_resident_leave: false\n");
+        var options = of("cleanup_plots_after_unclaim: false\nbypass_protection_in_ruined_towns: false\nmark_locks_of_leaving_residents: false\n");
         assertFalse(options.cleanupAfterUnclaim());
         assertFalse(options.bypassProtectionsInRuinedTowns());
-        assertFalse(options.cleanupOnResidentLeave());
+        assertFalse(options.markLocksOfLeavingResidents());
     }
 
     @Test
@@ -35,8 +35,8 @@ class TownyOptionsTest {
     void missingKeysTakeTheDefaults() throws Exception {
         var options = of("{}\n");
         assertTrue(options.cleanupAfterUnclaim());
-        assertTrue(options.cleanupOnPlotOwnerChange());
-        assertTrue(options.cleanupOnResidentLeave());
+        assertTrue(options.townAuthorityCanUnlockExResidentLocks());
+        assertTrue(options.markLocksOfLeavingResidents());
         assertTrue(options.bypassProtectionsInRuinedTowns());
         assertTrue(options.townAuthorityCanUnlockTownPlots());
         assertTrue(options.allowMayorToSeeBlockInfo());
@@ -50,8 +50,8 @@ class TownyOptionsTest {
         try (var in = getClass().getResourceAsStream("/integrations/towny.yml")) {
             config.loadFromString(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
         }
-        for (var key : new String[]{TownyOptions.CLEANUP_PLOTS_AFTER_UNCLAIM, TownyOptions.CLEANUP_ON_PLOT_OWNER_CHANGE,
-            TownyOptions.CLEANUP_ON_RESIDENT_LEAVE, TownyOptions.RESTRICT_ACCESS_TO_RESIDENTS,
+        for (var key : new String[]{TownyOptions.CLEANUP_PLOTS_AFTER_UNCLAIM, TownyOptions.MARK_LOCKS_OF_LEAVING_RESIDENTS,
+            TownyOptions.TOWN_AUTHORITY_CAN_UNLOCK_EX_RESIDENT, TownyOptions.RESTRICT_ACCESS_TO_RESIDENTS,
             TownyOptions.ALLOW_MAYOR_TO_SEE_BLOCK_INFO, TownyOptions.BYPASS_PROTECTIONS_IN_RUINED_TOWNS,
             TownyOptions.TOWN_AUTHORITY_CAN_UNLOCK, TownyOptions.TOWN_AUTHORITY_RANKS}) {
             assertTrue(config.contains(key), key);

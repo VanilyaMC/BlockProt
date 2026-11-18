@@ -1,16 +1,19 @@
 # BlockProt's Towny plugin integration config.
 
-# When a plot is cleared, unclaimed or the town is unclaimed (also while
-# a town is deleted) or gets ruined, the locks inside are removed.
+# When land leaves a town (the mayor unclaims a plot, the town is deleted, or it
+# gets ruined) the locks inside are removed: nobody is left to look after them.
 cleanup_plots_after_unclaim: true
 
-# When a plot is claimed, sold, handed back to the town or evicted, the
-# locks inside that do not belong to the new owner are removed.
-cleanup_on_plot_owner_change: true
+# Claiming, buying, selling, evicting a plot or changing plot permissions never
+# opens a lock: whoever locked a block keeps the lock. A plot clear only removes
+# the locks of the block types Towny's plot clear deletes anyway.
 
-# When a resident leaves a town or is kicked, the locks they hold inside
-# that town are removed.
-cleanup_on_resident_leave: true
+# When a resident leaves a town or is kicked, the locks they hold inside it are
+# marked. They stay locked to their owner and run out after
+# ex_resident_lock_grace_days (config.yml). The mayor and the assistants can take
+# them off by hand at once (next setting).
+mark_locks_of_leaving_residents: true
+town_authority_can_unlock_ex_resident_locks: true
 
 # The mayor and the ranks listed below can take locks off blocks on plots
 # that belong to the town (not to a resident), and see who locked them.

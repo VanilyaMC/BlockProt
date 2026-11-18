@@ -326,6 +326,14 @@ public final class DefaultConfig extends BlockProtConfig {
         return Math.max(0, config.getInt("lock_expiry_days", 0));
     }
 
+    /**
+     * How many days the locks of a player who left a town stay after he left. Zero: they stay
+     * until the mayor removes them or the owner has been away for {@link #getLockExpiryDays()} days.
+     */
+    public int getOrphanGraceDays() {
+        return Math.max(0, config.getInt("ex_resident_lock_grace_days", 7));
+    }
+
     public long getLockHintCooldown() {
         if (!config.contains("lock_hint_cooldown_in_seconds")) {
             return 10;

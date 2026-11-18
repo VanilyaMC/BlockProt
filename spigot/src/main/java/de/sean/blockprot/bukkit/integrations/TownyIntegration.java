@@ -23,7 +23,6 @@ import com.palmergames.bukkit.towny.TownyAPI;
 import com.palmergames.bukkit.towny.TownySettings;
 import com.palmergames.bukkit.towny.event.PlotClearEvent;
 import com.palmergames.bukkit.towny.event.TownRemoveResidentEvent;
-import com.palmergames.bukkit.towny.event.plot.changeowner.PlotChangeOwnerEvent;
 import com.palmergames.bukkit.towny.event.town.TownRuinedEvent;
 import com.palmergames.bukkit.towny.event.town.TownUnclaimEvent;
 import com.palmergames.bukkit.towny.object.*;
@@ -34,9 +33,12 @@ import de.sean.blockprot.bukkit.events.BlockAccessMenuEvent;
 import de.sean.blockprot.bukkit.events.BlockLockOnPlaceEvent;
 import de.sean.blockprot.bukkit.nbt.LockCleaner;
 import de.sean.blockprot.bukkit.nbt.StatHandler;
+import de.sean.blockprot.bukkit.nbt.BlockNBTHandler;
 import de.sean.blockprot.cleanup.CleanupPlanner;
+import de.sean.blockprot.cleanup.LockRules;
 import de.sean.blockprot.cleanup.LockEntry;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
@@ -48,7 +50,10 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 /**
  * Towny integration. Locks follow the land: when land is cleared, handed over, unclaimed or
@@ -183,7 +188,7 @@ public final class TownyIntegration extends PluginIntegration implements Listene
     /**
      * Removes the locks inside the plot. Owners listed in {@code keep} are left alone.
      */
-    private void removeAllProtections(@Nullable final WorldCoord worldCoord, @Nullable final UUID keep) {
+    private void removeAllProtections(@Nullable final WorldCoord worldCoord, @Nullable final Predicate<Material> typeFilter) {
         if (worldCoord == null) {
             return;
         }
@@ -192,9 +197,9 @@ public final class TownyIntegration extends PluginIntegration implements Listene
             worldCoord.getWorldName(),
             worldCoord.getX(), worldCoord.getZ(),
             TownySettings.getTownBlockSize(),
-            keep == null ? null : keep::equals);
+            null);
         if (!locks.isEmpty()) {
-            LockCleaner.clear(locks);
+            LockCleaner.clear(locks, typeFilter);
         }
     }
 
@@ -258,15 +263,22 @@ public final class TownyIntegration extends PluginIntegration implements Listene
             return;
         }
 
-        // The mayor and the assistants take locks off town-owned plots (not personal plots).
+        // The mayor and the assistants take locks off town-owned plots, and off the locks of somebody who
+        // left the town (never off a resident's lock on that resident's own plot).
         final TownBlock townBlock = TownyAPI.getInstance().getTownBlock(block.getLocation());
-        if (options().townAuthorityCanUnlockTownPlots()
-            && townBlock != null && !townBlock.hasResident()
-            && isTownAuthority(town, event.getPlayer())) {
-            event.addPermissions(BlockAccessMenuEvent.MenuPermission.LOCK,
-                BlockAccessMenuEvent.MenuPermission.INFO,
-                BlockAccessMenuEvent.MenuPermission.FORCE_UNLOCK);
-            return;
+        if (townBlock != null && isTownAuthority(town, event.getPlayer())) {
+            final BlockNBTHandler handler = new BlockNBTHandler(block);
+            final boolean plotIsTownOwned = !townBlock.hasResident();
+            final boolean ownerIsResident = lockOwnerIsResident(town, handler);
+            final boolean allowTownPlots = options().townAuthorityCanUnlockTownPlots();
+            final boolean allowExResident = options().townAuthorityCanUnlockExResidentLocks();
+            if (handler.isProtected()
+                && LockRules.townAuthorityMayUnlock(true, plotIsTownOwned && allowTownPlots, ownerIsResident || !allowExResident)) {
+                event.addPermissions(BlockAccessMenuEvent.MenuPermission.LOCK,
+                    BlockAccessMenuEvent.MenuPermission.INFO,
+                    BlockAccessMenuEvent.MenuPermission.FORCE_UNLOCK);
+                return;
+            }
         }
 
         if (!PlayerCacheUtil.getCachePermission(
@@ -316,7 +328,10 @@ public final class TownyIntegration extends PluginIntegration implements Listene
         if (!options().cleanupAfterUnclaim() || event.getTownBlock() == null) {
             return;
         }
-        removeAllProtections(event.getTownBlock().getWorldCoord(), null);
+        // Only the blocks Towny itself removes lose their lock: a plot clear never opens a chest it leaves standing.
+        final Set<Material> removed = EnumSet.noneOf(Material.class);
+        removed.addAll(event.getTownBlock().getWorld().getPlotManagementMayorDelete());
+        removeAllProtections(event.getTownBlock().getWorldCoord(), removed::contains);
     }
 
     /** The town is ruined: every plot of it. The plots still belong to the town at this point. */
@@ -343,25 +358,14 @@ public final class TownyIntegration extends PluginIntegration implements Listene
     }
 
     /**
-     * A plot is claimed, sold, handed back to the town or evicted: only the locks of the new
-     * owner survive. Nobody else can unlock them and the new owner would be shut out.
-     */
-    @EventHandler
-    public void onPlotOwnerChange(@NotNull final PlotChangeOwnerEvent event) {
-        if (!options().cleanupOnPlotOwnerChange() || event.getTownBlock() == null) {
-            return;
-        }
-        final Resident newOwner = event.getNewResident();
-        removeAllProtections(event.getTownBlock().getWorldCoord(), newOwner == null ? null : newOwner.getUUID());
-    }
-
-    /**
-     * A resident leaves a town or is kicked: the locks they hold inside it go, so their chests
-     * do not sit in the middle of the town for good.
+     * A resident leaves a town or is kicked. The locks they hold inside it are not opened: that would
+     * let a mayor (or an alt that joined the town) empty somebody's chests the moment they are kicked.
+     * Instead the locks are marked; the mayor and assistants may take them off by hand, and when the
+     * grace period (ex_resident_lock_grace_days) is over they stop protecting anything.
      */
     @EventHandler
     public void onResidentLeave(@NotNull final TownRemoveResidentEvent event) {
-        if (!options().cleanupOnResidentLeave()) {
+        if (!options().markLocksOfLeavingResidents()) {
             return;
         }
         final Town town = event.getTown();
@@ -370,7 +374,18 @@ public final class TownyIntegration extends PluginIntegration implements Listene
         final List<LockEntry> locks = CleanupPlanner.ownedInside(
             StatHandler.allLocks(), resident, entry -> insideTown(town, entry));
         if (!locks.isEmpty()) {
-            LockCleaner.clear(locks);
+            LockCleaner.markOrphaned(locks);
+        }
+    }
+
+    private boolean lockOwnerIsResident(@NotNull final Town town, @NotNull final BlockNBTHandler handler) {
+        final String owner = handler.getOwner();
+        if (owner.isEmpty()) return true;
+        try {
+            final Resident resident = TownyAPI.getInstance().getResident(UUID.fromString(owner));
+            return resident != null && town.hasResident(resident);
+        } catch (IllegalArgumentException e) {
+            return true;
         }
     }
 

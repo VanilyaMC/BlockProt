@@ -30,8 +30,8 @@ import java.util.List;
  */
 public final class TownyOptions {
     public static final String CLEANUP_PLOTS_AFTER_UNCLAIM = "cleanup_plots_after_unclaim";
-    public static final String CLEANUP_ON_PLOT_OWNER_CHANGE = "cleanup_on_plot_owner_change";
-    public static final String CLEANUP_ON_RESIDENT_LEAVE = "cleanup_on_resident_leave";
+    public static final String MARK_LOCKS_OF_LEAVING_RESIDENTS = "mark_locks_of_leaving_residents";
+    public static final String TOWN_AUTHORITY_CAN_UNLOCK_EX_RESIDENT = "town_authority_can_unlock_ex_resident_locks";
     public static final String RESTRICT_ACCESS_TO_RESIDENTS = "restrict_access_to_residents";
     public static final String ALLOW_MAYOR_TO_SEE_BLOCK_INFO = "allow_mayor_to_see_block_info";
     public static final String BYPASS_PROTECTIONS_IN_RUINED_TOWNS = "bypass_protection_in_ruined_towns";
@@ -54,17 +54,19 @@ public final class TownyOptions {
         return config.getBoolean(ALLOW_MAYOR_TO_SEE_BLOCK_INFO, true);
     }
 
-    /** Clear the locks of a plot that is cleared or unclaimed, or of a ruined town. */
+    /** Clear the locks of land that leaves a town (unclaim, delete, ruin) or of the blocks a plot clear removes. */
     public boolean cleanupAfterUnclaim() {
         return config.getBoolean(CLEANUP_PLOTS_AFTER_UNCLAIM, true);
     }
 
-    public boolean cleanupOnPlotOwnerChange() {
-        return config.getBoolean(CLEANUP_ON_PLOT_OWNER_CHANGE, true);
+    /** Locks of a resident who leaves or is kicked are marked, and run out after the grace period. */
+    public boolean markLocksOfLeavingResidents() {
+        return config.getBoolean(MARK_LOCKS_OF_LEAVING_RESIDENTS, true);
     }
 
-    public boolean cleanupOnResidentLeave() {
-        return config.getBoolean(CLEANUP_ON_RESIDENT_LEAVE, true);
+    /** Mayors and assistants may remove the locks of somebody who is not a resident of the town any more. */
+    public boolean townAuthorityCanUnlockExResidentLocks() {
+        return config.getBoolean(TOWN_AUTHORITY_CAN_UNLOCK_EX_RESIDENT, true);
     }
 
     /** Locks in ruined towns do not count. */

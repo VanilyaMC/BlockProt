@@ -42,6 +42,13 @@ lock_on_place_by_default: false
 # block a town. 0 turns this off.
 lock_expiry_days: 30
 
+# When a resident leaves a Towny town or is kicked, the locks they hold inside
+# that town are NOT opened at once (that would let a mayor, or an alt that joined
+# the town, empty the chests the moment somebody is kicked). They stay locked to
+# their owner, the mayor and the assistants can take them off by hand, and after
+# this many days they stop protecting anything. 0 turns the automatic end off.
+ex_resident_lock_grace_days: 7
+
 # Setting this to 'true' will make "the public" a friend by
 # default.
 public_is_friend_by_default: false

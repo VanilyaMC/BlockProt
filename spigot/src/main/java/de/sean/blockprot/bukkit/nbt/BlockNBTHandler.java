@@ -23,6 +23,7 @@ import de.sean.blockprot.bukkit.Permissions;
 import de.sean.blockprot.bukkit.Translator;
 import de.sean.blockprot.bukkit.nbt.stats.PlayerBlocksStatistic;
 import de.sean.blockprot.bukkit.util.BlockUtil;
+import de.sean.blockprot.cleanup.LockRules;
 import de.sean.blockprot.nbt.FriendModifyAction;
 import de.sean.blockprot.nbt.LockReturnValue;
 import de.tr7zw.changeme.nbtapi.*;
@@ -51,6 +52,9 @@ public final class BlockNBTHandler extends FriendSupportingHandler<NBTCompound> 
     static final String REDSTONE_ATTRIBUTE = "blockprot_redstone";
 
     static final String NAME_ATTRIBUTE = "blockprot_name";
+
+    /** When the owner left the town the block stands in (epoch millis). Absent: he did not. */
+    static final String ORPHANED_ATTRIBUTE = "blockprot_orphaned_at";
 
     /**
      * The backing block this handler handles.
@@ -128,6 +132,9 @@ public final class BlockNBTHandler extends FriendSupportingHandler<NBTCompound> 
         final String owner = getOwner();
         // The lock of a player who has not been around for a long time does not count.
         if (!owner.isEmpty() && InactivityGuard.isExpired(owner)) return true;
+        // The same after the owner left the town and the grace period is over.
+        if (!owner.isEmpty() && LockRules.orphanGraceOver(getOrphanedAt(), System.currentTimeMillis(),
+            BlockProt.getDefaultConfig().getOrphanGraceDays())) return true;
         return owner.isEmpty() && getFriends().isEmpty();
     }
 
@@ -158,6 +165,17 @@ public final class BlockNBTHandler extends FriendSupportingHandler<NBTCompound> 
      */
     public boolean isOwner(@NotNull final UUID player) {
         return getOwner().equals(player.toString());
+    }
+
+    /** When the owner left the town of this block, or 0. */
+    public long getOrphanedAt() {
+        if (!container.hasTag(ORPHANED_ATTRIBUTE)) return 0L;
+        return container.getLong(ORPHANED_ATTRIBUTE);
+    }
+
+    public void setOrphanedAt(final long millis) {
+        if (millis <= 0) container.removeKey(ORPHANED_ATTRIBUTE);
+        else container.setLong(ORPHANED_ATTRIBUTE, millis);
     }
 
     public @NotNull String getName() {
@@ -226,7 +244,9 @@ public final class BlockNBTHandler extends FriendSupportingHandler<NBTCompound> 
         String owner = getOwner();
         final String playerUuid = player.getUniqueId().toString();
 
-        if (owner.isEmpty() || InactivityGuard.isExpired(owner)) {
+        if (owner.isEmpty() || InactivityGuard.isExpired(owner)
+            || LockRules.orphanGraceOver(getOrphanedAt(), System.currentTimeMillis(),
+            BlockProt.getDefaultConfig().getOrphanGraceDays())) {
             // A lock left behind by a player who is long gone is taken over.
             if (!owner.isEmpty()) {
                 forgetOwnerStatistic(owner);
@@ -394,6 +414,7 @@ public final class BlockNBTHandler extends FriendSupportingHandler<NBTCompound> 
      */
     public void clear() {
         this.setOwner("");
+        this.setOrphanedAt(0L);
         this.setFriends(Collections.emptyList());
         this.getRedstoneHandler().reset();
     }
@@ -409,6 +430,7 @@ public final class BlockNBTHandler extends FriendSupportingHandler<NBTCompound> 
     public void mergeHandler(@NotNull NBTHandler<?> handler) {
         if (!(handler instanceof final BlockNBTHandler blockNBTHandler)) return;
         this.setOwner(blockNBTHandler.getOwner());
+        this.setOrphanedAt(blockNBTHandler.getOrphanedAt());
         this.setFriends(blockNBTHandler.getFriends());
         this.getRedstoneHandler().mergeHandler(blockNBTHandler.getRedstoneHandler());
         this.setName(handler.getName());

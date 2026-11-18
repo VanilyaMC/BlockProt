@@ -22,11 +22,14 @@ package de.sean.blockprot.bukkit.nbt;
 import de.sean.blockprot.bukkit.BlockProt;
 import de.sean.blockprot.cleanup.LockEntry;
 import org.bukkit.Bukkit;
+import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
+import java.util.function.Predicate;
 import java.util.logging.Level;
 
 /**
@@ -38,12 +41,40 @@ public final class LockCleaner {
     private LockCleaner() {
     }
 
+    /** What happens to a lock. */
+    private enum Action {
+        /** The lock is removed. */
+        UNLOCK,
+        /** The lock stays, but it is marked as left behind by an owner who left the town. */
+        ORPHAN
+    }
+
     /**
      * Removes the given locks. Returns at once; the work happens on the region threads.
      *
      * @return How many removals were queued.
      */
     public static int clear(@NotNull final Collection<LockEntry> entries) {
+        return clear(entries, null);
+    }
+
+    /**
+     * Removes the given locks, but only on blocks of a type {@code typeFilter} accepts
+     * (a plot clear only removes the locks of the block types it removes itself).
+     */
+    public static int clear(@NotNull final Collection<LockEntry> entries, @Nullable final Predicate<Material> typeFilter) {
+        return run(entries, typeFilter, Action.UNLOCK);
+    }
+
+    /**
+     * Marks the given locks as left behind: they stay locked, and run out after the grace period.
+     */
+    public static int markOrphaned(@NotNull final Collection<LockEntry> entries) {
+        return run(entries, null, Action.ORPHAN);
+    }
+
+    private static int run(final Collection<LockEntry> entries, @Nullable final Predicate<Material> typeFilter,
+                           final Action action) {
         int queued = 0;
         for (final LockEntry entry : entries) {
             final World world = Bukkit.getWorld(entry.world());
@@ -61,7 +92,7 @@ public final class LockCleaner {
                     return;
                 }
                 Bukkit.getRegionScheduler().execute(BlockProt.getInstance(), world, chunkX, chunkZ,
-                    () -> clearNow(world, entry));
+                    () -> apply(world, entry, typeFilter, action));
             });
             queued++;
         }
@@ -69,17 +100,29 @@ public final class LockCleaner {
     }
 
     /** Must run on the thread of the region that owns the block. */
-    private static void clearNow(@NotNull final World world, @NotNull final LockEntry entry) {
+    private static void apply(@NotNull final World world, @NotNull final LockEntry entry,
+                              @Nullable final Predicate<Material> typeFilter, @NotNull final Action action) {
         try {
             final Block block = world.getBlockAt(entry.x(), entry.y(), entry.z());
-            if (BlockProt.getDefaultConfig().isLockable(block.getType())) {
-                new BlockNBTHandler(block).unlock();
+            if (typeFilter != null && !typeFilter.test(block.getType())) {
+                return; // The block stays, so does its lock.
+            }
+            if (!BlockProt.getDefaultConfig().isLockable(block.getType())) {
+                // Whatever the block is now, the index must not keep the entry.
+                StatHandler.removeContainer(entry.owner(), entry.world(), entry.x(), entry.y(), entry.z());
+                return;
+            }
+            final BlockNBTHandler handler = new BlockNBTHandler(block);
+            if (action == Action.UNLOCK) {
+                handler.unlock();
+                StatHandler.removeContainer(entry.owner(), entry.world(), entry.x(), entry.y(), entry.z());
+            } else if (handler.isOwner(entry.owner()) && handler.getOrphanedAt() == 0L) {
+                handler.setOrphanedAt(System.currentTimeMillis());
+                handler.applyToOtherContainer();
             }
         } catch (RuntimeException e) {
             BlockProt.getInstance().getLogger().log(Level.WARNING,
-                "Could not remove the lock at " + entry.world() + " " + entry.x() + " " + entry.y() + " " + entry.z(), e);
+                "Could not change the lock at " + entry.world() + " " + entry.x() + " " + entry.y() + " " + entry.z(), e);
         }
-        // Whatever the block is now, the index must not keep the entry.
-        StatHandler.removeContainer(entry.owner(), entry.world(), entry.x(), entry.y(), entry.z());
     }
 }
