@@ -127,6 +127,7 @@ public final class FriendManageInventory extends BlockProtInventory {
                 player.closeInventory();
             }
             case BOOK -> closeAndOpen(player, new FriendSearchHistoryInventory().fill(player));
+            case COMPASS -> closeAndOpen(player, new FriendNearbyInventory().fill(player));
             case WITHER_SKELETON_SKULL -> {
                 applyChanges(
                     player,
@@ -199,6 +200,10 @@ public final class FriendManageInventory extends BlockProtInventory {
                 Material.WITHER_SKELETON_SKULL,
                 TranslationKey.INVENTORIES__FRIENDS__MAKE_PUBLIC);
         }
+        setItemStack(
+            getSize() - 5,
+            Material.COMPASS,
+            TranslationKey.INVENTORIES__FRIENDS__NEARBY);
         setItemStack(
             getSize() - 3,
             Material.BOOK,

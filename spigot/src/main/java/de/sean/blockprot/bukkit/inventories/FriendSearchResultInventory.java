@@ -163,16 +163,7 @@ public class FriendSearchResultInventory extends BlockProtInventory {
         final InventoryState state = InventoryState.get(player.getUniqueId());
         if (state == null) return false;
 
-        java.util.UUID found = null;
-        final Player online = Bukkit.getPlayerExact(name);
-        if (online != null) {
-            found = online.getUniqueId();
-        } else {
-            final OfflinePlayer cached = Bukkit.getOfflinePlayerIfCached(name);
-            if (cached != null && cached.getName() != null && cached.getName().equalsIgnoreCase(name)) {
-                found = cached.getUniqueId();
-            }
-        }
+        final java.util.UUID found = de.sean.blockprot.bukkit.util.PlayerNames.resolve(name);
         if (found == null || found.equals(player.getUniqueId())) return false;
         if (state.friendSearchState == InventoryState.FriendSearchState.FRIEND_SEARCH
             && state.getBlock() != null

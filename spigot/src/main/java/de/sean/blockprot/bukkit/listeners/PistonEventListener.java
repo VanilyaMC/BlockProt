@@ -45,12 +45,12 @@ public class PistonEventListener implements Listener {
                 // Shulker boxes drop right away. Those will therefore not have
                 // to be configured to disable redstone, but they will never be
                 // pushable if locked.
-                if (new BlockNBTHandler(block).isProtected()) {
+                if (BlockNBTHandler.view(block).isProtected()) {
                     event.setCancelled(true);
                     return;
                 }
             } else if (BlockProt.getDefaultConfig().isLockable(block.getType())) {
-                BlockNBTHandler nbtHandler = new BlockNBTHandler(block);
+                BlockNBTHandler nbtHandler = BlockNBTHandler.view(block);
                 // We check if the block is protected, because we only care
                 // about locked blocks that have redstone disabled.
                 if (nbtHandler.isProtected() && nbtHandler.getRedstoneHandler().getPistonProtection()) {
@@ -71,7 +71,7 @@ public class PistonEventListener implements Listener {
             // Check if the block is lockable. Shulker boxes can't be pulled back
             // so we don't do the same as in the onPistonExtend event handler.
             if (BlockProt.getDefaultConfig().isLockable(block.getType())) {
-                BlockNBTHandler nbtHandler = new BlockNBTHandler(block);
+                BlockNBTHandler nbtHandler = BlockNBTHandler.view(block);
                 // We check if the block is protected, because we only care
                 // about locked blocks that have redstone disabled.
                 if (nbtHandler.isProtected() && nbtHandler.getRedstoneHandler().getPistonProtection()) {

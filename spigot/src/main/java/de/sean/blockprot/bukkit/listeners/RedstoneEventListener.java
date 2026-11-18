@@ -30,7 +30,7 @@ public class RedstoneEventListener implements Listener {
         if (BlockProt.getDefaultConfig().isWorldExcluded(event.getBlock().getWorld())) return;
         // If this is a lockable block and the redstone protection is activated, set the redstone current to 0
         if (!BlockProt.getDefaultConfig().isLockableBlock(event.getBlock().getType())) return;
-        final BlockNBTHandler handler = new BlockNBTHandler(event.getBlock());
+        final BlockNBTHandler handler = BlockNBTHandler.view(event.getBlock());
         if (handler.isProtected() && handler.getRedstoneHandler().getCurrentProtection()) {
             event.setNewCurrent(0);
         }

@@ -30,9 +30,9 @@ import de.sean.blockprot.bukkit.inventories.InventoryState;
 import de.sean.blockprot.bukkit.inventories.UserSettingsInventory;
 import de.sean.blockprot.bukkit.nbt.BlockNBTHandler;
 import de.sean.blockprot.bukkit.nbt.PlayerSettingsHandler;
+import de.sean.blockprot.bukkit.util.PlayerNames;
 import de.sean.blockprot.nbt.FriendModifyAction;
 import org.bukkit.Bukkit;
-import org.bukkit.OfflinePlayer;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -52,7 +52,8 @@ import java.util.UUID;
  * (Bedrock players above all) who cannot do that comfortably.
  * <ul>
  *   <li>{@code /kilit}: opens the lock menu of the block you look at.</li>
- *   <li>{@code /kilit arkadas <isim>}: lets that player use the block you look at.</li>
+ *   <li>{@code /kilit ekle <isim>}: lets that player use the block you look at.</li>
+ *   <li>{@code /kilit cikar <isim>}: takes that player off the block you look at.</li>
  *   <li>{@code /kilit ayar}: your own settings.</li>
  * </ul>
  */
@@ -79,12 +80,19 @@ public final class KilitCommand implements TabExecutor {
                 player.openInventory(new UserSettingsInventory().fill(player));
                 new PlayerSettingsHandler(player).setHasPlayerInteractedWithMenu(true);
             }
-            case "arkadas", "arkadaş", "friend" -> {
+            case "ekle", "arkadas", "arkadaş", "friend", "add" -> {
                 if (args.length < 2) {
                     Messages.chat(player, Translator.get(TranslationKey.MESSAGES__KILIT_USAGE));
                     return true;
                 }
-                addFriend(player, args[1]);
+                changeFriend(player, args[1], true);
+            }
+            case "cikar", "çıkar", "remove" -> {
+                if (args.length < 2) {
+                    Messages.chat(player, Translator.get(TranslationKey.MESSAGES__KILIT_USAGE));
+                    return true;
+                }
+                changeFriend(player, args[1], false);
             }
             default -> openMenu(player);
         }
@@ -113,25 +121,16 @@ public final class KilitCommand implements TabExecutor {
         player.openInventory(inv);
     }
 
-    private void addFriend(@NotNull Player player, @NotNull String name) {
+    private void changeFriend(@NotNull Player player, @NotNull String name, final boolean add) {
         final Block block = lookedAtBlock(player);
         if (block == null) return;
 
-        UUID found = null;
-        final Player online = Bukkit.getPlayerExact(name);
-        if (online != null) {
-            found = online.getUniqueId();
-        } else {
-            final OfflinePlayer cached = Bukkit.getOfflinePlayerIfCached(name);
-            if (cached != null && cached.getName() != null && cached.getName().equalsIgnoreCase(name)) {
-                found = cached.getUniqueId();
-            }
-        }
+        final UUID found = PlayerNames.resolve(name);
         if (found == null || found.equals(player.getUniqueId())) {
             Messages.chat(player, Translator.get(TranslationKey.MESSAGES__PLAYER_NOT_FOUND));
             return;
         }
-        if (!PluginIntegration.filterFriendByUuidForAll(found, player, block)) {
+        if (add && !PluginIntegration.filterFriendByUuidForAll(found, player, block)) {
             Messages.chat(player, Translator.get(TranslationKey.MESSAGES__NO_PERMISSION));
             return;
         }
@@ -141,13 +140,14 @@ public final class KilitCommand implements TabExecutor {
             Messages.chat(player, Translator.get(TranslationKey.MESSAGES__NO_PERMISSION));
             return;
         }
-        final var result = handler.modifyFriends(player.getUniqueId().toString(), found.toString(), FriendModifyAction.ADD_FRIEND);
+        final var result = handler.modifyFriends(player.getUniqueId().toString(), found.toString(),
+            add ? FriendModifyAction.ADD_FRIEND : FriendModifyAction.REMOVE_FRIEND);
         if (result.success) {
             handler.applyToOtherContainer();
-            new PlayerSettingsHandler(player).addPlayerToSearchHistory(found);
-            Messages.chat(player, Translator.get(TranslationKey.MESSAGES__FRIEND_ADDED));
+            if (add) new PlayerSettingsHandler(player).addPlayerToSearchHistory(found);
+            Messages.chat(player, Translator.get(add ? TranslationKey.MESSAGES__FRIEND_ADDED : TranslationKey.MESSAGES__FRIEND_REMOVED));
         } else {
-            Messages.chat(player, Translator.get(TranslationKey.MESSAGES__FRIEND_ALREADY_ADDED));
+            Messages.chat(player, Translator.get(add ? TranslationKey.MESSAGES__FRIEND_ALREADY_ADDED : TranslationKey.MESSAGES__FRIEND_NOT_IN_LIST));
         }
     }
 
@@ -155,9 +155,10 @@ public final class KilitCommand implements TabExecutor {
     public @Nullable List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
         final List<String> out = new ArrayList<>();
         if (args.length == 1) {
-            out.add("arkadas");
+            out.add("ekle");
+            out.add("cikar");
             out.add("ayar");
-        } else if (args.length == 2 && args[0].equalsIgnoreCase("arkadas")) {
+        } else if (args.length == 2 && (args[0].equalsIgnoreCase("ekle") || args[0].equalsIgnoreCase("cikar"))) {
             for (final Player p : Bukkit.getOnlinePlayers()) {
                 if (p.getName().toLowerCase(Locale.ENGLISH).startsWith(args[1].toLowerCase(Locale.ENGLISH))
                     && !p.equals(sender)) out.add(p.getName());

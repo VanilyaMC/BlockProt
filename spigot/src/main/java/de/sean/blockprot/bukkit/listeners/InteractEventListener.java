@@ -76,7 +76,7 @@ public class InteractEventListener implements Listener {
                 event.setCancelled(true);
                 sendMessage(player, Translator.get(TranslationKey.MESSAGES__NO_PERMISSION));
             } else {
-                BlockNBTHandler handler = new BlockNBTHandler(event.getClickedBlock());
+                BlockNBTHandler handler = BlockNBTHandler.view(event.getClickedBlock());
                 if (!(accessEvent.shouldBypassProtections()
                     || handler.canAccess(player.getUniqueId().toString())
                     || player.hasPermission(Permissions.BYPASS.key()))) {

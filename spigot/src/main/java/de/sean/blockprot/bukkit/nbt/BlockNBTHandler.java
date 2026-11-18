@@ -74,16 +74,38 @@ public final class BlockNBTHandler extends FriendSupportingHandler<NBTCompound> 
      * @since 0.2.3
      */
     public BlockNBTHandler(@NotNull final Block block) throws RuntimeException {
+        this(block, false);
+    }
+
+    private BlockNBTHandler(@NotNull final Block block, final boolean readOnly) throws RuntimeException {
         super(LOCK_ATTRIBUTE);
         this.block = block;
 
         if (BlockProt.getDefaultConfig().isLockableBlock(this.block.getType())) {
             container = new NBTBlock(block).getData();
         } else if (BlockProt.getDefaultConfig().isLockableTileEntity(this.block.getType())) {
-            container = new NBTTileEntity(block.getState()).getPersistentDataContainer();
+            if (readOnly) {
+                // A copy of the lock data: nothing done to it can reach the tile entity. Writing to a
+                // tile entity (even just creating an empty compound) reloads it from a snapshot, and a
+                // hopper pull holds a half-moved stack at that moment, which would be lost for good.
+                final NBTCompound data = new NBTTileEntity(block.getState(false)).getCompound("PublicBukkitValues");
+                final NBTContainer copy = new NBTContainer();
+                if (data != null) copy.mergeCompound(data);
+                container = copy;
+            } else {
+                container = new NBTTileEntity(block.getState()).getPersistentDataContainer();
+            }
         } else {
             throw new RuntimeException("Given block " + block.getType() + " is not a lockable block/tile entity");
         }
+    }
+
+    /**
+     * A handler that can only look: use it in every event that must not write to the block,
+     * above all item moves (hoppers), where a write loses items.
+     */
+    public static @NotNull BlockNBTHandler view(@NotNull final Block block) throws RuntimeException {
+        return new BlockNBTHandler(block, true);
     }
 
     /**

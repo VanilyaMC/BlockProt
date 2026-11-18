@@ -326,26 +326,28 @@ public final class TownyIntegration extends PluginIntegration implements Listene
         }
     }
 
-    /** Who ran {@code /plot clear} on this thread a moment ago: the event itself does not say. */
-    private final java.util.concurrent.ConcurrentHashMap<Long, long[]> clearTimes = new java.util.concurrent.ConcurrentHashMap<>();
-    private final java.util.concurrent.ConcurrentHashMap<Long, UUID> clearActors = new java.util.concurrent.ConcurrentHashMap<>();
+    private record ClearRequest(@NotNull UUID player, long at) { }
+
+    /** Who typed {@code /plot clear} on which plot (the clear itself waits for /confirm, on another thread). */
+    private final java.util.concurrent.ConcurrentHashMap<WorldCoord, ClearRequest> clearRequests = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long CLEAR_CONFIRM_WINDOW_MILLIS = 60_000L;
 
     @EventHandler(priority = org.bukkit.event.EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlotClearCommand(@NotNull final org.bukkit.event.player.PlayerCommandPreprocessEvent event) {
         final String message = event.getMessage().toLowerCase(java.util.Locale.ROOT).trim();
         if (message.matches("^/(towny:)?plot\\s+clear(\\s.*)?$")) {
-            final long thread = Thread.currentThread().threadId();
-            clearActors.put(thread, event.getPlayer().getUniqueId());
-            clearTimes.put(thread, new long[]{System.currentTimeMillis()});
+            final long now = System.currentTimeMillis();
+            clearRequests.values().removeIf(r -> now - r.at() > CLEAR_CONFIRM_WINDOW_MILLIS);
+            clearRequests.put(WorldCoord.parseWorldCoord(event.getPlayer()),
+                new ClearRequest(event.getPlayer().getUniqueId(), now));
         }
     }
 
-    /** The player who ran the plot clear that fires the event now, or null (console, plugin, too old). */
-    private @Nullable UUID takeClearActor() {
-        final long thread = Thread.currentThread().threadId();
-        final var when = clearTimes.remove(thread);
-        final UUID who = clearActors.remove(thread);
-        return when != null && System.currentTimeMillis() - when[0] < 5000 ? who : null;
+    /** The player who asked to clear this plot a moment ago, or null (console, plugin, too old). */
+    private @Nullable UUID takeClearActor(@NotNull final WorldCoord plot) {
+        final ClearRequest request = clearRequests.remove(plot);
+        return request != null && System.currentTimeMillis() - request.at() <= CLEAR_CONFIRM_WINDOW_MILLIS
+            ? request.player() : null;
     }
 
     /**
@@ -361,11 +363,11 @@ public final class TownyIntegration extends PluginIntegration implements Listene
      */
     @EventHandler
     public void onPlotClear(@NotNull final PlotClearEvent event) {
-        final UUID actor = takeClearActor();
         if (!options().cleanupAfterUnclaim() || event.getTownBlock() == null) {
             return;
         }
         final TownBlock townBlock = event.getTownBlock();
+        final UUID actor = takeClearActor(townBlock.getWorldCoord());
         final List<WorldCoord> here = List.of(townBlock.getWorldCoord());
         if (!townBlock.hasResident()) {
             changeLocks(here, Change.REMOVE, null, null);

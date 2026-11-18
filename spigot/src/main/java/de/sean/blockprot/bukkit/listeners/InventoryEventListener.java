@@ -112,7 +112,7 @@ public class InventoryEventListener implements Listener {
     private static Boolean denial(Player player, InventoryHolder holder, boolean writing) {
         final String uuid = player.getUniqueId().toString();
         for (final Block block : lockableBlocksOf(holder)) {
-            final BlockNBTHandler handler = new BlockNBTHandler(block);
+            final BlockNBTHandler handler = BlockNBTHandler.view(block);
             if (!handler.isProtected() || handler.isOwner(uuid) || player.hasPermission(Permissions.BYPASS.key())) continue;
             final var friend = handler.getFriend(uuid);
             if (friend.isEmpty() || !friend.get().canRead()) return true;
@@ -123,7 +123,7 @@ public class InventoryEventListener implements Listener {
 
     @EventHandler
     public void onLecternClick(@NotNull PlayerTakeLecternBookEvent event) {
-        final var handler = new BlockNBTHandler(event.getLectern().getBlock());
+        final var handler = BlockNBTHandler.view(event.getLectern().getBlock());
         final var uuid = event.getPlayer().getUniqueId();
 
         if (handler.isProtected() && !handler.isOwner(uuid)) {
@@ -168,7 +168,7 @@ public class InventoryEventListener implements Listener {
             InventoryState state = InventoryState.get(playerUuid);
             if (state == null || state.getBlock() == null) return;
             try {
-                BlockNBTHandler handler = new BlockNBTHandler(state.getBlock());
+                BlockNBTHandler handler = BlockNBTHandler.view(state.getBlock());
                 Optional<FriendHandler> friend = handler.getFriend(playerUuid);
                 if (!(handler.isNotProtected()
                     || handler.isOwner(playerUuid)
@@ -190,7 +190,7 @@ public class InventoryEventListener implements Listener {
                     sendMessage(player, Translator.get(TranslationKey.MESSAGES__NO_PERMISSION));
                     return;
                 }
-                BlockNBTHandler handler = new BlockNBTHandler(block);
+                BlockNBTHandler handler = BlockNBTHandler.view(block);
                 if (!accessEvent.shouldBypassProtections()
                     && !(handler.canAccess(player.getUniqueId().toString()) || player.hasPermission(Permissions.BYPASS.key()))) {
                     event.setCancelled(true);

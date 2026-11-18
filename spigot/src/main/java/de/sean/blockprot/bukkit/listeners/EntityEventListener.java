@@ -38,14 +38,14 @@ public final class EntityEventListener implements Listener {
 
             if (mat.toString().contains("ANVIL") &&
                 BlockProt.getDefaultConfig().isLockableBlock(mat)) {
-                BlockNBTHandler handler = new BlockNBTHandler(event.getBlock());
+                BlockNBTHandler handler = BlockNBTHandler.view(event.getBlock());
 
                 if (handler.isProtected())
                     event.setCancelled(true);
             }
         }
         else if (BlockProt.getDefaultConfig().isLockable(event.getBlock().getType())) {
-            BlockNBTHandler handler = new BlockNBTHandler(event.getBlock());
+            BlockNBTHandler handler = BlockNBTHandler.view(event.getBlock());
             if (handler.isProtected())
                 event.setCancelled(true);
         }

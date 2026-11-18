@@ -20,81 +20,55 @@ package de.sean.blockprot.bukkit.listeners;
 
 import de.sean.blockprot.bukkit.BlockProt;
 import de.sean.blockprot.bukkit.nbt.BlockNBTHandler;
+import de.sean.blockprot.bukkit.util.BlockUtil;
 import org.bukkit.block.Block;
-import org.bukkit.block.Container;
-import org.bukkit.block.DoubleChest;
-import org.bukkit.entity.Minecart;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
-import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.InventoryHolder;
 import org.jetbrains.annotations.Nullable;
 
+/**
+ * Items moving between containers by themselves: hoppers, hopper minecarts, droppers.
+ * <ul>
+ *   <li>A locked container gives items only to a container locked by the same player. A stranger's
+ *       hopper (or any unlocked one), a hopper minecart and the like get nothing out of it.</li>
+ *   <li>Items going INTO a locked container are let in unless the one pushing is locked by somebody
+ *       else: an unlocked hopper tells us nothing about who built it, and the owner's own farm
+ *       hoppers must keep working.</li>
+ *   <li>The owner can switch the first rule off for one lock (the hopper protection setting).</li>
+ * </ul>
+ * Everything here only reads: changing a container while an item is half moved loses items.
+ */
 public class HopperEventListener implements Listener {
-    @EventHandler
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
     public void onItemMove(InventoryMoveItemEvent event) {
-        if (event.getSource().getHolder() == null) return;
-        if (BlockProt.getDefaultConfig().isWorldExcluded(event.getSource().getHolder())) return;
-        if ((event.getDestination().getType() == InventoryType.HOPPER || event.getSource().getType() == InventoryType.HOPPER)) {
-            // This is a hopper trying to pull from something.
-            Block source = getBlock(event.getSource().getHolder());
-            if (source != null && BlockProt.getDefaultConfig().isLockable(source.getType())) {
-                BlockNBTHandler sourceHandler = new BlockNBTHandler(source);
-                if (sourceHandler.isProtected()) {
-                    // The source chest is owned by someone. Check if the hopper block is also owned by
-                    // the same player and if so, allow this event to happen, regardless of the hopper
-                    // protection.
-                    InventoryHolder destinationHolder = event.getDestination().getHolder();
-                    if (destinationHolder instanceof Container || destinationHolder instanceof DoubleChest) {
-                        // The destination is a block of some sorts, chest, hopper, ...
+        final InventoryHolder sourceHolder = event.getSource().getHolder(false);
+        final InventoryHolder destinationHolder = event.getDestination().getHolder(false);
+        if (sourceHolder == null && destinationHolder == null) return;
+        if (sourceHolder != null && BlockProt.getDefaultConfig().isWorldExcluded(sourceHolder)) return;
 
-                        Block destination = getBlock(event.getDestination().getHolder());
-                        if (destination != null && BlockProt.getDefaultConfig().isLockable(destination.getType())) {
-                            BlockNBTHandler destinationHandler = new BlockNBTHandler(destination);
-                            if (destinationHandler.isProtected()
-                                    && !destinationHandler.isOwner(sourceHandler.getOwner())
-                                    && sourceHandler.getRedstoneHandler().getHopperProtection()) {
-                                // The hopper and chest are NOT owned by the same person and the chest has
-                                // the hopper protection enabled, cancel this event.
-                                event.setCancelled(true);
-                            } else if (destinationHandler.isNotProtected()
-                                    && sourceHandler.getRedstoneHandler().getHopperProtection()) {
-                                // The hopper isn't protected, whereas the source block is, and it has the
-                                // hopper protection enabled. Cancel the event because it's trying to access
-                                // a locked container.
-                                event.setCancelled(true);
-                            }
-                        } else {
-                            /* The destination block cannot be locked and is therefore considered public */
-                            if (sourceHandler.getRedstoneHandler().getHopperProtection()) {
-                                event.setCancelled(true);
-                            }
-                        }
-                    } else if (destinationHolder instanceof Minecart) {
-                        // As Minecarts are not lockable (yet?), we will disallow the move
-                        // if hopper protection is enabled.
-                        if (sourceHandler.getRedstoneHandler().getHopperProtection()) {
-                            event.setCancelled(true);
-                        }
-                    }
-                }
-            }
+        final BlockNBTHandler source = lockOf(sourceHolder);
+        if (source == null) {
+            // Nothing is locked on the giving side. Whoever receives is the receiver's business.
+            return;
         }
+        if (!source.getRedstoneHandler().getHopperProtection()) return; // the owner opened it up
+
+        final BlockNBTHandler destination = lockOf(destinationHolder);
+        if (destination != null && destination.getOwner().equals(source.getOwner())) return; // one owner, both ends
+        event.setCancelled(true);
     }
 
-    /**
-     * Get the block from a InventoryHolder, instead of just getting the block by location as before.
-     */
-    @Nullable
-    private Block getBlock(InventoryHolder holder) {
-        // For a double chest the half that is locked decides, so a half that has no lock yet cannot be a way in.
-        final var blocks = de.sean.blockprot.bukkit.util.BlockUtil.blocksOf(holder);
-        for (final Block block : blocks) {
-            if (BlockProt.getDefaultConfig().isLockable(block.getType()) && new BlockNBTHandler(block).isProtected()) {
-                return block;
-            }
+    /** The lock data of the locked half of the holder's block(s), or null when none of it is locked. */
+    private static @Nullable BlockNBTHandler lockOf(@Nullable final InventoryHolder holder) {
+        if (holder == null) return null;
+        for (final Block block : BlockUtil.blocksOf(holder)) {
+            if (!BlockProt.getDefaultConfig().isLockable(block.getType())) continue;
+            final BlockNBTHandler handler = BlockNBTHandler.view(block);
+            if (handler.isProtected()) return handler;
         }
-        return blocks.isEmpty() ? null : blocks.get(0);
+        return null;
     }
 }

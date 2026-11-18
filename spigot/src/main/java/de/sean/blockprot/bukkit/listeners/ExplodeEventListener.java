@@ -48,7 +48,7 @@ public class ExplodeEventListener implements Listener {
             if (BlockProt.getDefaultConfig().isLockableTileEntity(b.getType()) ||
                 BlockProt.getDefaultConfig().isLockableBlock(b.getType())) {
                 // Someone owns this block, block its destroying.
-                final BlockNBTHandler handler = new BlockNBTHandler(b);
+                final BlockNBTHandler handler = BlockNBTHandler.view(b);
                 if (handler.isProtected())
                     it.remove();
             }

@@ -38,9 +38,9 @@ import java.util.UUID;
 
 /**
  * Spawners that the spawner plugin records an owner for follow that plugin's ownership:
- * only the owner of a spawner can lock it, the owner can always break it, and spawners
- * nobody placed (the ones the world made) cannot be locked at all, because those are
- * meant to be taken by whoever uses the breaker item.
+ * only the owner of a spawner can lock it and the owner can always break it. Spawners
+ * nobody placed (the ones the world made) can be locked only inside a town plot, by a
+ * player Towny lets break blocks there; in the wilderness they stay free for the breaker item.
  */
 public final class SpawnerIntegration extends PluginIntegration implements Listener {
     /** Where the spawner plugin keeps the placer of a spawner, on the block itself. */
@@ -102,9 +102,10 @@ public final class SpawnerIntegration extends PluginIntegration implements Liste
             }
             return;
         }
-        // Locking: only for the spawner owner.
-        if (!hasOwnerRights(event.getPlayer(), block)) {
-            event.setCancelled(true);
-        }
+        // Locking: the spawner owner may. A natural spawner (nobody placed it) may be locked
+        // by whoever Towny lets break it, when it stands in a town plot; in the wilderness never.
+        if (hasOwnerRights(event.getPlayer(), block)) return;
+        if (spawnerOwner(block) == null && TownyClaims.mayBreakInTown(event.getPlayer(), block)) return;
+        event.setCancelled(true);
     }
 }
