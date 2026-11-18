@@ -139,7 +139,7 @@ public final class StatHandler extends NBTHandler<NBTCompound> {
                 task -> new StatisticFileSaveTask().run(),
                 5, 5, TimeUnit.MINUTES);
         } catch (Throwable e) {
-            BlockProt.getInstance().getLogger().warning("Failed to open BlockProt statistic file.");
+            BlockProt.getInstance().getLogger().log(java.util.logging.Level.SEVERE, "Failed to open the lock statistics file; the lock limit and the land cleanup do not work.", e);
         }
     }
 
@@ -272,6 +272,11 @@ public final class StatHandler extends NBTHandler<NBTCompound> {
                 StatHandler.removeContainer(player, otherDoor.getLocation());
         }
         StatHandler.removeContainer(player, block.getLocation());
+        /* Both halves of a double chest can be listed */
+        if (block.getType() == org.bukkit.Material.CHEST || block.getType() == org.bukkit.Material.TRAPPED_CHEST) {
+            final var other = BlockUtil.getDoubleChest(block);
+            if (other != null) StatHandler.removeContainer(player, other.getLocation());
+        }
     }
 
     /**
@@ -345,6 +350,13 @@ public final class StatHandler extends NBTHandler<NBTCompound> {
     public static void getStatistic(@NotNull BukkitStatistic<?> statistic, @Nullable Player player) {
         synchronized (LOCK) {
             getStatisticLocked(statistic, player == null ? null : player.getUniqueId().toString());
+        }
+    }
+
+    /** Whether the statistics could be opened. */
+    public static boolean isEnabled() {
+        synchronized (LOCK) {
+            return nbtFile != null;
         }
     }
 

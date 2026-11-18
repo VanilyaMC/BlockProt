@@ -46,7 +46,9 @@ public final class LockCleaner {
         /** The lock is removed. */
         UNLOCK,
         /** The lock stays, but it is marked as left behind by an owner who left the town. */
-        ORPHAN
+        ORPHAN,
+        /** The mark is taken off again (the owner is back). */
+        UNMARK
     }
 
     /**
@@ -73,6 +75,11 @@ public final class LockCleaner {
         return run(entries, null, Action.ORPHAN);
     }
 
+    /** Takes the "left behind" mark off the given locks. */
+    public static int unmarkOrphaned(@NotNull final Collection<LockEntry> entries) {
+        return run(entries, null, Action.UNMARK);
+    }
+
     private static int run(final Collection<LockEntry> entries, @Nullable final Predicate<Material> typeFilter,
                            final Action action) {
         int queued = 0;
@@ -85,14 +92,27 @@ public final class LockCleaner {
             }
             final int chunkX = entry.x() >> 4;
             final int chunkZ = entry.z() >> 4;
+            // The chunk is kept loaded until the region thread has done its work.
+            world.addPluginChunkTicket(chunkX, chunkZ, BlockProt.getInstance());
             world.getChunkAtAsync(chunkX, chunkZ, false).whenComplete((chunk, error) -> {
-                if (error != null || chunk == null) {
-                    // The chunk does not exist any more (never generated or deleted): nothing to unlock.
+                if (error != null) {
+                    world.removePluginChunkTicket(chunkX, chunkZ, BlockProt.getInstance());
+                    BlockProt.getInstance().getLogger().log(Level.WARNING, "Could not load a chunk to change a lock", error);
+                    return;
+                }
+                if (chunk == null) {
+                    // The chunk does not exist (never generated or deleted): nothing to unlock.
+                    world.removePluginChunkTicket(chunkX, chunkZ, BlockProt.getInstance());
                     StatHandler.removeContainer(entry.owner(), entry.world(), entry.x(), entry.y(), entry.z());
                     return;
                 }
-                Bukkit.getRegionScheduler().execute(BlockProt.getInstance(), world, chunkX, chunkZ,
-                    () -> apply(world, entry, typeFilter, action));
+                Bukkit.getRegionScheduler().execute(BlockProt.getInstance(), world, chunkX, chunkZ, () -> {
+                    try {
+                        apply(world, entry, typeFilter, action);
+                    } finally {
+                        world.removePluginChunkTicket(chunkX, chunkZ, BlockProt.getInstance());
+                    }
+                });
             });
             queued++;
         }
@@ -113,11 +133,21 @@ public final class LockCleaner {
                 return;
             }
             final BlockNBTHandler handler = new BlockNBTHandler(block);
+            if (!handler.isOwner(entry.owner())) {
+                // A stale entry: somebody else's lock (or none) stands here now. Only the index is fixed.
+                StatHandler.removeContainer(entry.owner(), entry.world(), entry.x(), entry.y(), entry.z());
+                return;
+            }
             if (action == Action.UNLOCK) {
                 handler.unlock();
                 StatHandler.removeContainer(entry.owner(), entry.world(), entry.x(), entry.y(), entry.z());
-            } else if (handler.isOwner(entry.owner()) && handler.getOrphanedAt() == 0L) {
-                handler.setOrphanedAt(System.currentTimeMillis());
+            } else if (action == Action.ORPHAN) {
+                if (handler.getOrphanedAt() == 0L) {
+                    handler.setOrphanedAt(System.currentTimeMillis());
+                    handler.applyToOtherContainer();
+                }
+            } else if (handler.getOrphanedAt() != 0L) {
+                handler.setOrphanedAt(0L);
                 handler.applyToOtherContainer();
             }
         } catch (RuntimeException e) {

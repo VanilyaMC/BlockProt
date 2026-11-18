@@ -68,6 +68,15 @@ class CleanupPlannerTest {
     }
 
     @Test
+    void severalPlotsAreFoundInOnePass() {
+        var a = lock(ALICE, "world", 1, 64, 1);    // plot (0, 0)
+        var b = lock(BOB, "world", 17, 64, 1);     // plot (1, 0)
+        var c = lock(ALICE, "world", 33, 64, 1);   // plot (2, 0), not asked
+        var plots = Set.of(new CleanupPlanner.PlotKey("world", 0, 0), new CleanupPlanner.PlotKey("world", 1, 0));
+        assertEquals(Set.of(a, b), Set.copyOf(CleanupPlanner.inPlots(List.of(a, b, c), plots, 16)));
+    }
+
+    @Test
     void nothingToClean() {
         assertTrue(CleanupPlanner.inPlot(List.of(), "world", 0, 0, 16, null).isEmpty());
         assertTrue(CleanupPlanner.ownedInside(List.of(), ALICE, e -> true).isEmpty());

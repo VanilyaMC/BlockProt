@@ -193,7 +193,7 @@ public class FriendSearchResultInventory extends BlockProtInventory {
         InventoryState state = InventoryState.get(player.getUniqueId());
         if (state == null) return inventory;
 
-        final ResultUpdateTask updater = new ResultUpdateTask(state);
+        final ResultUpdateTask updater = new ResultUpdateTask(state, player);
         updateTask = player.getScheduler().runAtFixedRate(BlockProt.getInstance(), task -> updater.run(), null, 1, 1);
         loadTask = CompletableFuture.runAsync(() -> new AsyncResultLoadTask(state, player, searchQuery).run());
 
@@ -216,8 +216,11 @@ public class FriendSearchResultInventory extends BlockProtInventory {
         InventoryState state;
         int playersIndex = 0;
 
-        ResultUpdateTask(@NotNull InventoryState state) {
+        final Player viewer;
+
+        ResultUpdateTask(@NotNull InventoryState state, @NotNull Player viewer) {
             this.state = state;
+            this.viewer = viewer;
         }
 
         @Override
@@ -235,6 +238,11 @@ public class FriendSearchResultInventory extends BlockProtInventory {
 
             OfflinePlayer profile;
             while ((profile = resultQueue.poll()) != null && playersIndex < maxResults) {
+                // The land plugin's filter, on the player's own thread.
+                if (state.friendSearchState == InventoryState.FriendSearchState.FRIEND_SEARCH && state.getBlock() != null
+                    && !PluginIntegration.filterFriendByUuidForAll(profile.getUniqueId(), viewer, state.getBlock())) {
+                    continue;
+                }
                 // Clear all the skeleton skulls named "Loading"
                 if (playersIndex == 0) {
                     for (int i = 0; i < maxResults; i++) {
@@ -288,11 +296,7 @@ public class FriendSearchResultInventory extends BlockProtInventory {
                     .sorted((a, b) -> b.right.compareTo(a.right))
                     .map(p -> p.left);
 
-                if (state.friendSearchState == InventoryState.FriendSearchState.FRIEND_SEARCH && state.getBlock() != null) {
-                    filterStream = filterStream
-                            .filter(f -> PluginIntegration.filterFriendByUuidForAll(f.getUniqueId(), player, state.getBlock()));
-                }
-
+                // The land plugin's filter runs later, on the player's own thread (see ResultUpdateTask).
                 filterStream.limit(maxResults).forEach(resultQueue::add);
             } catch (Exception e) {
                 BlockProt.getInstance().getLogger().warning("Failed to search and filter players during friend search: " + e.getMessage());

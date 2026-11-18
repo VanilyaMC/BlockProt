@@ -120,7 +120,6 @@ public class BlockEventListener implements Listener {
     @EventHandler
     public void onBlockPlace(BlockPlaceEvent event) {
         if (BlockProt.getDefaultConfig().isWorldExcluded(event.getBlock().getWorld())) return;
-        if (!event.getPlayer().hasPermission(Permissions.LOCK.key())) return;
         if (!BlockProt.getDefaultConfig().isLockable(event.getBlock().getType())) return;
 
         Block block = event.getBlockPlaced();
@@ -134,6 +133,8 @@ public class BlockEventListener implements Listener {
             Messages.actionBar(event.getPlayer(), Translator.get(TranslationKey.MESSAGES__LOCKED));
             return;
         }
+        // Only players who may lock lock on place; the checks above hold for everybody.
+        final boolean mayLock = event.getPlayer().hasPermission(Permissions.LOCK.key());
         BlockNBTHandler handler = new BlockNBTHandler(block);
 
         // We only try to lock the block if it isn't locked already.
@@ -141,7 +142,7 @@ public class BlockEventListener implements Listener {
             PlayerSettingsHandler settingsHandler = new PlayerSettingsHandler(event.getPlayer());
 
             // Lock the block instantly if the setting is enabled.
-            if (settingsHandler.getLockOnPlace()) {
+            if (mayLock && settingsHandler.getLockOnPlace()) {
                 BlockLockOnPlaceEvent lockOnPlaceEvent = new BlockLockOnPlaceEvent(event.getBlock(), event.getPlayer());
 
                 Bukkit.getPluginManager().callEvent(lockOnPlaceEvent);
@@ -176,8 +177,11 @@ public class BlockEventListener implements Listener {
                         final BlockState doubleChestState = BlockUtil.getDoubleChest(block);
                         if (doubleChestState != null) {
                             final BlockNBTHandler doubleChestHandler = new BlockNBTHandler(doubleChestState.getBlock());
-                            if (doubleChestHandler.isNotProtected() || doubleChestHandler.isOwner(playerUuid)) {
-                                handler.mergeHandler(doubleChestHandler);
+                            if (doubleChestHandler.isNotProtected()) {
+                                // The new half carries the lock (or nothing): the old half takes it over.
+                                new BlockNBTHandler(block).applyToOtherContainer();
+                            } else if (doubleChestHandler.isOwner(playerUuid)) {
+                                new BlockNBTHandler(block).mergeHandler(doubleChestHandler);
                             } else {
                                 // The new half would open somebody else's locked chest. We can't cancel the
                                 // event one tick later, so the new half is taken away and returned.
@@ -211,6 +215,20 @@ public class BlockEventListener implements Listener {
         if (BlockProt.getDefaultConfig().isWorldExcluded(event.getBlock().getWorld())) return;
         final BlockNBTHandler handler = new BlockNBTHandler(event.getBlock());
         if (handler.isProtected()) {
+            event.setCancelled(true);
+        }
+    }
+
+    /**
+     * The server is about to destroy a block without a player: a piston pushing a door, a support
+     * that went away. A locked block stays.
+     */
+    @EventHandler(ignoreCancelled = true)
+    public void onBlockDestroy(@NotNull final com.destroystokyo.paper.event.block.BlockDestroyEvent event) {
+        final Material type = event.getBlock().getType();
+        if (!BlockProt.getDefaultConfig().isLockable(type)) return;
+        if (BlockProt.getDefaultConfig().isWorldExcluded(event.getBlock().getWorld())) return;
+        if (new BlockNBTHandler(event.getBlock()).isProtected()) {
             event.setCancelled(true);
         }
     }

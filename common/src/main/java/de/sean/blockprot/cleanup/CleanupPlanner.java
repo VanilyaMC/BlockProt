@@ -50,6 +50,21 @@ public final class CleanupPlanner {
             .toList();
     }
 
+    /** One plot as a land plugin counts them. */
+    public record PlotKey(String world, int x, int z) {
+    }
+
+    /**
+     * The locks inside any of several plots, found in one pass over the index (a ruined or deleted
+     * town has many plots).
+     */
+    public static List<LockEntry> inPlots(final Collection<LockEntry> all, final java.util.Set<PlotKey> plots,
+                                          final int plotSize) {
+        return all.stream()
+            .filter(e -> plots.contains(new PlotKey(e.world(), Math.floorDiv(e.x(), plotSize), Math.floorDiv(e.z(), plotSize))))
+            .toList();
+    }
+
     /**
      * The locks one player holds inside a town, for when the player leaves or is kicked.
      *

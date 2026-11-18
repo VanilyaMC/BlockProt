@@ -53,13 +53,15 @@ public class InventoryEventListener implements Listener {
     public void onInventoryClick(@NotNull InventoryClickEvent event) {
         final Player player = (Player) event.getWhoClicked();
         final InventoryState state = InventoryState.get(player.getUniqueId());
-        if (state != null) {
-            // We have some sort of inventory state, so we'll assume the player is currently in
-            // some of our inventories. We'll check from which inventory the clicked item actually is,
-            // so that the onClick method is only called for menu clicks, but we'll still cancel all
-            // clicks in the players inventory.
+        // The window decides, not the stored state: the state stays after a menu is closed with Escape,
+        // and an ordinary chest opened afterwards must still be checked.
+        if (event.getInventory().getHolder() instanceof BlockProtInventory) {
+            if (state == null) {
+                event.setCancelled(true);
+                return;
+            }
             InventoryHolder holder = event.getInventory().getHolder();
-            if (holder instanceof BlockProtInventory) {
+            {
                 // While getInventory always returns the top inventory, getClickedInventory returns the
                 // inventory in which this event occurred.
                 final var clickedInventory = event.getClickedInventory();
@@ -85,8 +87,7 @@ public class InventoryEventListener implements Listener {
     @EventHandler
     public void onInventoryDrag(@NotNull InventoryDragEvent event) {
         if (!(event.getWhoClicked() instanceof Player player)) return;
-        final InventoryState state = InventoryState.get(player.getUniqueId());
-        if (state != null && event.getInventory().getHolder() instanceof BlockProtInventory) {
+        if (event.getInventory().getHolder() instanceof BlockProtInventory) {
             event.setCancelled(true); // Never drag anything around in a menu.
             return;
         }

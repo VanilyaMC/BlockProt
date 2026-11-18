@@ -255,7 +255,7 @@ public final class BlockNBTHandler extends FriendSupportingHandler<NBTCompound> 
 
             // Check if the player is not exceeding their max block count.
             Integer maxBlockCount = BlockProt.getDefaultConfig().getMaxLockedBlockCount();
-            if (maxBlockCount != null) {
+            if (maxBlockCount != null && StatHandler.isEnabled()) {
                 PlayerBlocksStatistic playerBlocksStatistic = new PlayerBlocksStatistic();
                 int lockedCount;
                 synchronized (StatHandler.lock()) {
@@ -270,7 +270,7 @@ public final class BlockNBTHandler extends FriendSupportingHandler<NBTCompound> 
                     for (PermissionAttachmentInfo permission : player.getEffectivePermissions()) {
                         if (permission.getPermission().toLowerCase(Locale.ENGLISH).startsWith("blockprot.locklimit.") && permission.getValue()) {
                             String foundValue = permission.getPermission().toLowerCase(Locale.ENGLISH).replace("blockprot.locklimit.", "");
-                            if (isNotNumeric(foundValue)) continue;
+                            if (!foundValue.matches("\\d{1,9}")) continue;
                             int value = Integer.parseInt(foundValue);
                             if (highestValueFound == null || value > highestValueFound) {
                                 highestValueFound = value;

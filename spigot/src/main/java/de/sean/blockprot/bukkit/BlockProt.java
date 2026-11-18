@@ -137,8 +137,9 @@ public final class BlockProt extends JavaPlugin {
         command.setExecutor(executor);
         command.setTabCompleter(executor);
         final var shortcut = Objects.requireNonNull(this.getCommand("kilit"));
-        shortcut.setExecutor(executor);
-        shortcut.setTabCompleter(executor);
+        final var kilit = new de.sean.blockprot.bukkit.commands.KilitCommand();
+        shortcut.setExecutor(kilit);
+        shortcut.setTabCompleter(kilit);
 
         /* Enable all integrations */
         for (PluginIntegration integration : integrations) {
@@ -157,7 +158,13 @@ public final class BlockProt extends JavaPlugin {
     public void onDisable() {
         getLogger().info("Saving statistic file...");
         StatHandler.disable();
-        getServer().getOnlinePlayers().forEach(HumanEntity::closeInventory);
+        for (final var online : getServer().getOnlinePlayers()) {
+            try {
+                online.closeInventory();
+            } catch (RuntimeException ignored) {
+                // Shutting down on another thread than the player: the window closes with the connection.
+            }
+        }
         super.onDisable();
     }
 
