@@ -17,7 +17,11 @@ Fork of [LimeNetwork/BlockProt](https://github.com/LimeNetwork/BlockProt) (itsel
   The settings in `integrations/towny.yml` now mean what they say (a key that is present is no longer always true).
 - `lock_expiry_days`: locks of players who have not joined for that long stop protecting anything.
 - ChestShop: a shop can only be set up on a locked chest by its owner or a friend who may manage it.
-- Spawners follow the AtlasSpawner owner: only the owner locks and always breaks his spawner.
+- Spawners follow the AtlasSpawner owner: only the owner locks and always breaks his spawner. A natural spawner
+  (nobody placed it) inside a town plot can be locked by whoever Towny lets break blocks there; in the wilderness never.
+- Hoppers: a locked container gives items only to a container locked by the same player (stranger's hopper,
+  hopper minecart, dropper into a free hopper: nothing). Pushing into a locked container is allowed unless the pusher is
+  locked by somebody else. The owner can switch it off per lock. Lock checks never write to the block during an item move.
 - Folia safety: region-thread cleanup, locked statistics, concurrent maps, no async inventory changes.
 - Lock on place is off by default; anvils are no longer lockable by default.
 
@@ -28,7 +32,9 @@ Fork of [LimeNetwork/BlockProt](https://github.com/LimeNetwork/BlockProt) (itsel
 ## Player commands
 
     /kilit                 menu of the block you look at
-    /kilit arkadas <isim>  let a player use the block you look at
+    /kilit ekle <isim>     let a player use the block you look at (Bedrock names work with or without the dot)
+    /kilit cikar <isim>    take a player off the block you look at
+    (menu: "Arkadaşları Yönet" has a name dialog, a list of nearby and town players to tap, and a remove button)
     /kilit ayar            your own settings
 
 Author of the changes in this fork: MrMirhan.
