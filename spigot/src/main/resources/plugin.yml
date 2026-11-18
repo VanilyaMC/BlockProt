@@ -30,7 +30,7 @@ commands:
   blockprot:
     description: The main blockprot command
     usage: "/blockprot [settings|stats|reload|integrations]"
-    aliases: ["bp"]
+    aliases: ["blokkoruma"]
   kilit:
     description: Lock menu of the block you look at
     usage: "/kilit [arkadas <isim>|ayar]"
